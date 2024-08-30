@@ -7,12 +7,15 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 func main() {
 	wikiDumpPath := flag.String("dump_path", "", "Path to the wiki dump file")
+	resumeLineNum := flag.Uint64("line_number", 0, "Line # to resume from")
 	flag.Parse()
 
 	if *wikiDumpPath == "" {
@@ -29,12 +32,27 @@ func main() {
 	defer func() { _ = dumpFH.Close() }()
 	slog.Info("Successfully opened the wiki dump file")
 
+	lineNum := uint64(0)
+	// listen for signals to stop and output the line number to resume from first
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+		slog.Warn("Caught signal, shutting down")
+		slog.Info("Resume with --line_number flag", "line_number", lineNum)
+		os.Exit(0)
+	}()
+
 	// make a new scanner to go through the dump file line by line
 	s := bufio.NewScanner(dumpFH)
 	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 	page := ""
 	pageSection := false
 	for s.Scan() {
+		lineNum++
+		if *resumeLineNum != 0 && lineNum < *resumeLineNum {
+			continue
+		}
 		line := s.Text()
 		// slog.Info("Processing line", "line", line)
 		if strings.Contains(line, "<page>") {
@@ -51,6 +69,7 @@ func main() {
 		}
 	}
 	if err := s.Err(); err != nil {
+		slog.Error("Resume with --line_number flag", "line_number", lineNum)
 		slog.Error("Error scanning the wiki dump file", "error", err)
 		return
 	}
