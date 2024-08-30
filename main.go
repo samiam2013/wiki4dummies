@@ -31,6 +31,7 @@ func main() {
 
 	// make a new scanner to go through the dump file line by line
 	s := bufio.NewScanner(dumpFH)
+	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 	page := ""
 	pageSection := false
 	for s.Scan() {
