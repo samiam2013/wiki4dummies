@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/samiam2013/wiki4dummies/wiki"
 	"golang.org/x/time/rate"
 )
 
@@ -98,7 +99,7 @@ func processPage(page, outputFolder string) {
 		// slog.Info("Skipping the page as it is a redirect page")
 		return
 	}
-	p := Page{}
+	p := wiki.Page{}
 	err := xml.Unmarshal([]byte(page), &p)
 	if err != nil {
 		slog.Error("Error unmarshalling the page", "error", err)
@@ -157,39 +158,4 @@ func slugify(title string) string {
 	title = strings.ReplaceAll(title, " ", "-")
 	title = reNonAlphaNum.ReplaceAllString(title, "")
 	return title
-}
-
-type Page struct {
-	XMLName  xml.Name `xml:"page"`
-	Text     string   `xml:",chardata"`
-	Title    string   `xml:"title"`
-	Ns       string   `xml:"ns"`
-	ID       string   `xml:"id"`
-	Redirect struct {
-		Text  string `xml:",chardata"`
-		Title string `xml:"title,attr"`
-	} `xml:"redirect"`
-	Revision struct {
-		Chardata    string `xml:",chardata"`
-		ID          string `xml:"id"`
-		Parentid    string `xml:"parentid"`
-		Timestamp   string `xml:"timestamp"`
-		Contributor struct {
-			Text     string `xml:",chardata"`
-			Username string `xml:"username"`
-			ID       string `xml:"id"`
-		} `xml:"contributor"`
-		Comment string `xml:"comment"`
-		Origin  string `xml:"origin"`
-		Model   string `xml:"model"`
-		Format  string `xml:"format"`
-		Text    struct {
-			Text  string `xml:",chardata"`
-			Bytes string `xml:"bytes,attr"`
-			Sha1  string `xml:"sha1,attr"`
-			Space string `xml:"space,attr"`
-		} `xml:"text"`
-		Sha1  string `xml:"sha1"`
-		Minor string `xml:"minor"`
-	} `xml:"revision"`
 }
