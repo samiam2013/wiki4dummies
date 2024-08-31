@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/xml"
 	"flag"
 	"log/slog"
@@ -11,6 +12,9 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
+
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -50,10 +54,13 @@ func main() {
 	pageSection := false
 	pageC := make(chan string, 2)
 	go func() {
+		limiter := rate.NewLimiter(rate.Every(20*time.Millisecond), 1)
 		for {
 			page := <-pageC
+			_ = limiter.Wait(context.Background())
 			go processPage(page)
 		}
+
 	}()
 	for s.Scan() {
 		lineNum++
