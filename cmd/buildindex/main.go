@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/caneroj1/stemmer"
@@ -34,8 +35,7 @@ func main() {
 	pageFiles := make([]string, 0)
 	if err := filepath.Walk(*pagesFolder, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			slog.Error("Error walking the pages folder", "error", err)
-			return err
+			return fmt.Errorf("Error walking the pages folder: %w", err)
 		}
 		if info.IsDir() {
 			return nil
@@ -69,7 +69,7 @@ func main() {
 	}
 
 	for _, pageFile := range pageFiles {
-		slog.Info("Processing page", "page", pageFile)
+		// slog.Info("Processing page", "page", pageFile)
 		// gather the word frequency of the page
 		wordFreq, err := gatherWordFrequency(pageFile)
 		if err != nil {
@@ -90,6 +90,11 @@ func main() {
 				return
 			}
 
+			// some languages don't use spaces, so the stem could be the whole sentence
+			if len(stem) > 50 {
+				stem = stem[:50]
+			}
+
 			indexFile := *indexFolder + stem + ".txt"
 			f, err := os.OpenFile(indexFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
 			if os.IsNotExist(err) {
@@ -102,10 +107,15 @@ func main() {
 				slog.Error("Error opening the index file", "error", err)
 				return
 			}
-			if _, err = fmt.Fprintf(f, "%s %d\n", word, freq); err != nil {
+			if _, err := f.Seek(0, 2); err != nil {
+				slog.Error("Error seeking to the end of the index file", "error", err)
+				return
+			}
+			if _, err = fmt.Fprintf(f, "%s %d\n", filepath.Base(pageFile), freq); err != nil {
 				slog.Error("Error writing to the index file", "error", err)
 				return
 			}
+			func() { _ = f.Close() }()
 		}
 		slog.Info("Processed page", "page", pageFile)
 	}
@@ -115,22 +125,30 @@ func main() {
 func gatherWordFrequency(pageFile string) (map[string]int, error) {
 	f, err := os.Open(pageFile)
 	if err != nil {
-		return nil, fmt.Errorf("Error opening the page file: %w", err)
+		return nil, fmt.Errorf("failed opening the page file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 	s := bufio.NewScanner(f)
 	s.Buffer(make([]byte, 0, 64*1024), 100*1024)
 	wordFreq := make(map[string]int)
 	for s.Scan() {
-		words := strings.Fields(s.Text())
+		words := getLowerWords(s.Text())
 		for _, word := range words {
-			// remove the punctuation
-			word = strings.Trim(word, ",.!?;:\"()[]{}")
 			wordFreq[word]++
 		}
 	}
 	if err := s.Err(); err != nil {
-		return nil, fmt.Errorf("Error scanning the page file: %w", err)
+		return nil, fmt.Errorf("failed scanning the page file: %w", err)
 	}
 	return wordFreq, nil
+}
+
+var _reGetLowerWords = regexp.MustCompile(`[a-zA-Z]+`)
+
+func getLowerWords(s string) []string {
+	words := make([]string, 0)
+	for _, match := range _reGetLowerWords.FindAllString(s, -1) {
+		words = append(words, strings.ToLower(match))
+	}
+	return words
 }
