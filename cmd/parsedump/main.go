@@ -19,6 +19,7 @@ import (
 
 func main() {
 	wikiDumpPath := flag.String("dump_path", "", "Path to the wiki dump file")
+	outputFolder := flag.String("output_folder", "./pages/", "Folder to store the parsed pages")
 	resumeLineNum := flag.Uint64("line_number", 0, "Line # to resume from")
 	flag.Parse()
 
@@ -28,16 +29,8 @@ func main() {
 		return
 	}
 
-	dumpFH, err := os.OpenFile(*wikiDumpPath, os.O_RDWR, 0664)
-	if err != nil {
-		slog.Error("Error opening the wiki dump file", "error", err)
-		return
-	}
-	defer func() { _ = dumpFH.Close() }()
-	slog.Info("Successfully opened the wiki dump file")
-
-	lineNum := uint64(0)
 	// listen for signals to stop and output the line number to resume from first
+	lineNum := uint64(0)
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -47,21 +40,30 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// make a new scanner to go through the dump file line by line
-	s := bufio.NewScanner(dumpFH)
-	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
-	page := ""
-	pageSection := false
+	// listen to a channel for pages and call the function to process each page
 	pageC := make(chan string, 2)
 	go func() {
 		limiter := rate.NewLimiter(rate.Every(20*time.Millisecond), 1)
 		for {
 			page := <-pageC
 			_ = limiter.Wait(context.Background())
-			go processPage(page)
+			go processPage(page, *outputFolder)
 		}
-
 	}()
+
+	dumpFH, err := os.OpenFile(*wikiDumpPath, os.O_RDWR, 0664)
+	if err != nil {
+		slog.Error("Error opening the wiki dump file", "error", err)
+		return
+	}
+	defer func() { _ = dumpFH.Close() }()
+	slog.Info("Successfully opened the wiki dump file")
+
+	// pass each page from the file to the channel
+	s := bufio.NewScanner(dumpFH)
+	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
+	page := ""
+	pageSection := false
 	for s.Scan() {
 		lineNum++
 		if *resumeLineNum != 0 && lineNum < *resumeLineNum {
@@ -90,7 +92,7 @@ func main() {
 	slog.Info("Successfully processed the wiki dump file")
 }
 
-func processPage(page string) {
+func processPage(page, outputFolder string) {
 	// call the command line tool to parse the page
 	if strings.Contains(page, "#REDIRECT") {
 		// slog.Info("Skipping the page as it is a redirect page")
@@ -106,7 +108,8 @@ func processPage(page string) {
 	text := p.Revision.Text.Text
 
 	pyScript := "./mediawiki2html.py"
-	pagePath := "./pages/" + slugify(title) + ".txt"
+	pagePath := outputFolder + slugify(title) + ".txt"
+	pageSourcePath := "./pages/" + slugify(title) + ".source.xml"
 	cmd := exec.Command(pyScript)
 	cmd.Stdin = strings.NewReader(text)
 	output, err := cmd.Output()
@@ -116,19 +119,33 @@ func processPage(page string) {
 	}
 	// slog.Info("got page", "title", title)
 
-	// write the page to a file
+	// write the page and source to files
 	pageFH, err := os.OpenFile(pagePath, os.O_CREATE|os.O_RDWR, 0664)
 	if err != nil {
 		slog.Error("Error opening the page file", "error", err)
 		return
 	}
 	defer func() { _ = pageFH.Close() }()
-	_, err = pageFH.Write(output)
-	if err != nil {
+	if _, err = pageFH.Write(output); err != nil {
 		slog.Error("Error writing the page to the file", "error", err)
 		return
 	}
-	slog.Info("Successfully wrote the page to the file", "title", title)
+	_ = pageFH.Sync()
+	slog.Info("Successfully wrote the page to the file", "file", pagePath)
+
+	// duplication of the above code to write the source to a file
+	pageSourceFH, err := os.OpenFile(pageSourcePath, os.O_CREATE|os.O_RDWR, 0664)
+	if err != nil {
+		slog.Error("Error opening the page file", "error", err)
+		return
+	}
+	defer func() { _ = pageSourceFH.Close() }()
+	if _, err = pageSourceFH.WriteString(page); err != nil {
+		slog.Error("Error writing the page to the file", "error", err)
+		return
+	}
+	_ = pageSourceFH.Sync()
+	slog.Info("Successfully wrote the page to the source file")
 
 }
 
