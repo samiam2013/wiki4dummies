@@ -48,6 +48,13 @@ func main() {
 	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 	page := ""
 	pageSection := false
+	pageC := make(chan string, 2)
+	go func() {
+		for {
+			page := <-pageC
+			go processPage(page)
+		}
+	}()
 	for s.Scan() {
 		lineNum++
 		if *resumeLineNum != 0 && lineNum < *resumeLineNum {
@@ -61,7 +68,7 @@ func main() {
 		if strings.Contains(line, "</page>") {
 			pageSection = false
 			page += line + "\n"
-			processPage(page)
+			pageC <- page
 			page = ""
 		}
 		if pageSection {
