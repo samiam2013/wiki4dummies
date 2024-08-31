@@ -44,7 +44,7 @@ func main() {
 	// listen to a channel for pages and call the function to process each page
 	pageC := make(chan string, 2)
 	go func() {
-		limiter := rate.NewLimiter(rate.Every(20*time.Millisecond), 1)
+		limiter := rate.NewLimiter(rate.Every(70*time.Millisecond), 1)
 		for {
 			page := <-pageC
 			_ = limiter.Wait(context.Background())
