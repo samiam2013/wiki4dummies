@@ -7,11 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
-	"github.com/caneroj1/stemmer"
-	"github.com/flytam/filenamify"
+	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
 )
 
@@ -82,20 +80,14 @@ func main() {
 		}
 		// get the stem of each word and write the frequency to that index file
 		for word, freq := range wordFreq {
-			stem := stemmer.Stem(word)
 
-			stem, err = filenamify.Filenamify(stem, filenamify.Options{Replacement: "-"})
+			stemFN, err := normalize.WordToStemmedFilename(word)
 			if err != nil {
-				slog.Error("Error filenamifying the stem for index file", "error", err)
+				slog.Error("Error getting the stem of the word", "error", err)
 				return
 			}
 
-			// some languages don't use spaces, so the stem could be the whole sentence
-			if len(stem) > 50 {
-				stem = stem[:50]
-			}
-
-			indexFile := *indexFolder + stem + ".txt"
+			indexFile := *indexFolder + stemFN
 			f, err := os.OpenFile(indexFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
 			if os.IsNotExist(err) {
 				f, err = os.Create(indexFile)
@@ -129,10 +121,10 @@ func gatherWordFrequency(pageFile string) (map[string]int, error) {
 	}
 	defer func() { _ = f.Close() }()
 	s := bufio.NewScanner(f)
-	s.Buffer(make([]byte, 0, 64*1024), 100*1024)
+	s.Buffer(make([]byte, 0, 64*1024), 100*100*1024)
 	wordFreq := make(map[string]int)
 	for s.Scan() {
-		words := getLowerWords(s.Text())
+		words := normalize.SplitAndLower(s.Text())
 		for _, word := range words {
 			wordFreq[word]++
 		}
@@ -141,14 +133,4 @@ func gatherWordFrequency(pageFile string) (map[string]int, error) {
 		return nil, fmt.Errorf("failed scanning the page file: %w", err)
 	}
 	return wordFreq, nil
-}
-
-var _reGetLowerWords = regexp.MustCompile(`[a-zA-Z]+`)
-
-func getLowerWords(s string) []string {
-	words := make([]string, 0)
-	for _, match := range _reGetLowerWords.FindAllString(s, -1) {
-		words = append(words, strings.ToLower(match))
-	}
-	return words
 }
