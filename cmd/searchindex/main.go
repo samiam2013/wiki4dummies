@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
 
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
@@ -66,16 +67,45 @@ func main() {
 			}
 		}
 	}
+
+	results := make(fileResults, 0)
 	for file, freq := range resultFileFreq {
 		lowestFreq := resultFileLowestFreq[file]
-		if freq > 1 {
-			fmt.Printf("%s found for %d words, lowest freq word %d\n", file, freq, lowestFreq)
+		if freq > 1 { // TODO should this be > 0 ?
+			results = append(results, fileResult{name: file, termsMatched: freq, lowestFreq: lowestFreq})
+			// fmt.Printf("%s found for %d words, lowest freq word %d\n", file, freq, lowestFreq)
 		}
 	}
+	results.Sort()
+	// fmt.Printf("Results: %#v\n", results)
 
 	// get the frequency of the files (how many terms give back that filename)
+	const resultLimit = 10
+	for i, result := range results {
+		if i >= resultLimit {
+			break
+		}
+		fmt.Printf("%s found for %d words, lowest freq word %d\n", result.name, result.termsMatched, result.lowestFreq)
+	}
 
 	// sort the results by frequency and filename
+}
+
+type fileResult struct {
+	name         string
+	termsMatched int
+	lowestFreq   int
+}
+type fileResults []fileResult
+
+// sort the results by terms matched and lowest frequency in that order of importance
+func (fr fileResults) Sort() {
+	sort.Slice(fr, func(i, j int) bool {
+		if fr[i].termsMatched == fr[j].termsMatched {
+			return fr[i].lowestFreq > fr[j].lowestFreq
+		}
+		return fr[i].termsMatched < fr[j].termsMatched
+	})
 }
 
 func getIndexEntries(indexFolder, word string) (map[string]int, error) {
