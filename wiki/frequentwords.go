@@ -1,8 +1,8 @@
 package wiki
 
-var FrequentWords = map[string]struct{}{ 
+var FrequentWords = map[string]struct{}{
 	"the": {}, "be": {}, "to": {}, "and": {}, "a": {}, "an": {}, "of": {}, "i": {}, "in": {}, "that": {}, "you": {}, "have": {},
-	"it": {}, "is":{}, "do": {}, "for": {}, "on": {}, "with": {}, "he": {}, "this": {}, "as": {}, "we": {}, "but": {}, "not": {},
+	"it": {}, "is": {}, "do": {}, "for": {}, "on": {}, "with": {}, "he": {}, "this": {}, "as": {}, "we": {}, "but": {}, "not": {},
 	"they": {}, "what": {}, "at": {}, "my": {}, "his": {}, "get": {}, "go": {}, "from": {}, "will": {}, "say": {}, "can": {},
 	"by": {}, "or": {}, "all": {}, "me": {}, "she": {}, "so": {}, "there": {}, "about": {}, "your": {}, "one": {}, "if": {}, "her": {}, "out": {},
 	"just": {}, "when": {}, "like": {}, "up": {}, "who": {}, "make": {}, "would": {}, "no": {}, "their": {}, "time": {}, "see": {}, "more": {}, "know": {},

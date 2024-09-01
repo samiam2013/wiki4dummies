@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/adrg/strutil/metrics"
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
 )
@@ -71,10 +72,14 @@ func main() {
 	results := make(fileResults, 0)
 	for file, freq := range resultFileFreq {
 		lowestFreq := resultFileLowestFreq[file]
-		if freq > 1 { // TODO should this be > 0 ?
-			results = append(results, fileResult{name: file, termsMatched: freq, lowestFreq: lowestFreq})
-			// fmt.Printf("%s found for %d words, lowest freq word %d\n", file, freq, lowestFreq)
-		}
+		// if freq > 0 { // TODO should this be > 0 ?
+		// TODO add the levenshtein distance from the query string to the file name on each result
+		lev := metrics.NewLevenshtein()
+		dist := lev.Distance(*query, file)
+		results = append(results,
+			fileResult{name: file, termsMatched: freq, lowestFreq: lowestFreq, queryNameDist: dist})
+		// fmt.Printf("%s found for %d words, lowest freq word %d\n", file, freq, lowestFreq)
+		// }
 	}
 	results.Sort()
 	// fmt.Printf("Results: %#v\n", results)
@@ -92,19 +97,29 @@ func main() {
 }
 
 type fileResult struct {
-	name         string
-	termsMatched int
-	lowestFreq   int
+	name          string
+	queryNameDist int
+	termsMatched  int
+	lowestFreq    int
 }
 type fileResults []fileResult
 
-// sort the results by terms matched and lowest frequency in that order of importance
+// sort the results by most terms matched,  lowest text distance,  and largest minimum frequency in that order of importance
 func (fr fileResults) Sort() {
+	// sort.Slice(fr, func(i, j int) bool {
+	// 	if fr[i].termsMatched == fr[j].termsMatched {
+	// 		return fr[i].lowestFreq > fr[j].lowestFreq
+	// 	}
+	// 	return fr[i].termsMatched < fr[j].termsMatched
+	// })
 	sort.Slice(fr, func(i, j int) bool {
 		if fr[i].termsMatched == fr[j].termsMatched {
-			return fr[i].lowestFreq > fr[j].lowestFreq
+			if fr[i].queryNameDist == fr[j].queryNameDist {
+				return fr[i].lowestFreq > fr[j].lowestFreq
+			}
+			return fr[i].queryNameDist < fr[j].queryNameDist
 		}
-		return fr[i].termsMatched < fr[j].termsMatched
+		return fr[i].termsMatched > fr[j].termsMatched
 	})
 }
 
