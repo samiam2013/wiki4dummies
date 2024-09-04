@@ -7,7 +7,6 @@ import (
 	"flag"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"regexp"
 	"strings"
@@ -44,11 +43,11 @@ func main() {
 	// listen to a channel for pages and call the function to process each page
 	pageC := make(chan string, 2)
 	go func() {
-		limiter := rate.NewLimiter(rate.Every(70*time.Millisecond), 1)
+		limiter := rate.NewLimiter(rate.Every(10*time.Millisecond), 1)
 		for {
 			page := <-pageC
 			_ = limiter.Wait(context.Background())
-			go processPage(page, *outputFolder)
+			processPage(page, *outputFolder)
 		}
 	}()
 
@@ -99,6 +98,7 @@ func processPage(page, outputFolder string) {
 		// slog.Info("Skipping the page as it is a redirect page")
 		return
 	}
+
 	p := wiki.Page{}
 	err := xml.Unmarshal([]byte(page), &p)
 	if err != nil {
@@ -106,35 +106,9 @@ func processPage(page, outputFolder string) {
 		return
 	}
 	title := p.Title
-	text := p.Revision.Text.Text
+	// text := p.Revision.Text.Text
 
-	pyScript := "./mediawiki2html.py"
-	pagePath := outputFolder + slugify(title) + ".txt"
-	pageSourcePath := "./pages/" + slugify(title) + ".source.xml"
-	cmd := exec.Command(pyScript)
-	cmd.Stdin = strings.NewReader(text)
-	output, err := cmd.Output()
-	if err != nil {
-		slog.Error("Error running the python script", "error", err)
-		return
-	}
-	// slog.Info("got page", "title", title)
-
-	// write the page and source to files
-	pageFH, err := os.OpenFile(pagePath, os.O_CREATE|os.O_RDWR, 0664)
-	if err != nil {
-		slog.Error("Error opening the page file", "error", err)
-		return
-	}
-	defer func() { _ = pageFH.Close() }()
-	if _, err = pageFH.Write(output); err != nil {
-		slog.Error("Error writing the page to the file", "error", err)
-		return
-	}
-	_ = pageFH.Sync()
-	slog.Info("Successfully wrote the page to the file", "file", pagePath)
-
-	// duplication of the above code to write the source to a file
+	pageSourcePath := outputFolder + slugify(title) + ".source.xml"
 	pageSourceFH, err := os.OpenFile(pageSourcePath, os.O_CREATE|os.O_RDWR, 0664)
 	if err != nil {
 		slog.Error("Error opening the page file", "error", err)
