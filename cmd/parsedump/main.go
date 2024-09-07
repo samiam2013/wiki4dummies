@@ -108,7 +108,8 @@ func processPage(page, outputFolder string) {
 	title := p.Title
 	// text := p.Revision.Text.Text
 
-	pageSourcePath := outputFolder + slugify(title) + ".source.xml"
+	pageSourceTitle := slugify(title) + ".source.xml"
+	pageSourcePath := outputFolder + pageSourceTitle
 	pageSourceFH, err := os.OpenFile(pageSourcePath, os.O_CREATE|os.O_RDWR, 0664)
 	if err != nil {
 		slog.Error("Error opening the page file", "error", err)
@@ -120,7 +121,7 @@ func processPage(page, outputFolder string) {
 		return
 	}
 	_ = pageSourceFH.Sync()
-	slog.Info("Successfully wrote the page to the source file")
+	slog.Info("Successful write", "path", pageSourceTitle)
 
 }
 
