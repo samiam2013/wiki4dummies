@@ -9,7 +9,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/adrg/strutil/metrics"
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
 )
@@ -74,8 +73,9 @@ func main() {
 		lowestFreq := resultFileLowestFreq[file]
 		// if freq > 0 { // TODO should this be > 0 ?
 		// TODO add the levenshtein distance from the query string to the file name on each result
-		lev := metrics.NewLevenshtein()
-		dist := lev.Distance(*query, file)
+		// lev := metrics.NewLevenshtein()
+		// dist := lev.Distance(*query, file)
+		dist := 0
 		results = append(results,
 			fileResult{name: file, termsMatched: freq, lowestFreq: lowestFreq, queryNameDist: dist})
 		// fmt.Printf("%s found for %d words, lowest freq word %d\n", file, freq, lowestFreq)

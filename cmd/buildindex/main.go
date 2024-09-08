@@ -4,19 +4,34 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
 )
 
 func main() {
-	pagesFolder := flag.String("pages_folder", "../parsedump/pages/", "Folder to gather pages from")
-	indexFolder := flag.String("index_folder", "./index/", "Folder to store the index")
+	pagesFolder := flag.String("pages_folder", "", "Folder to gather pages from")
+	indexFolder := flag.String("index_folder", "", "Folder to store the index")
+	resumeFileCount := flag.Int("resume_file_count", 0, "File count to resume from")
 	flag.Parse()
+
+	// maybe these shouldn't be pointers?
+	if *pagesFolder == "" {
+		slog.Error("The -pages_folder argument is required")
+	}
+	if *indexFolder == "" {
+		slog.Error("The -index_folder argument is required")
+	}
+	if *resumeFileCount < 0 {
+		slog.Error("The -resume_file_count argument must be a positive integer")
+	}
 
 	pagesStat, err := os.Stat(*pagesFolder)
 	if os.IsNotExist(err) {
@@ -30,30 +45,6 @@ func main() {
 		slog.Error("The pages folder is not a directory")
 		return
 	}
-	pageFiles := make([]string, 0)
-	if err := filepath.Walk(*pagesFolder, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return fmt.Errorf("Error walking the pages folder: %w", err)
-		}
-		if info.IsDir() {
-			return nil
-		}
-		// skip the source files, we're building an index from the words,
-		// the source files are so we can rebuild the data in html pages later
-		if strings.HasSuffix(path, ".xml") {
-			return nil
-		}
-		pageFiles = append(pageFiles, path)
-		return nil
-	}); err != nil {
-		slog.Error("Error walking the pages folder", "error", err)
-		return
-	}
-	if len(pageFiles) == 0 {
-		slog.Error("No pages found in the pages folder")
-		return
-	}
-	slog.Info("Found pages", "count", len(pageFiles))
 
 	if _, err := os.Stat(*indexFolder); os.IsNotExist(err) {
 		slog.Info("Creating the index folder")
@@ -66,61 +57,54 @@ func main() {
 		return
 	}
 
-	for _, pageFile := range pageFiles {
-		// slog.Info("Processing page", "page", pageFile)
-		// gather the word frequency of the page
-		wordFreq, err := gatherWordFrequency(pageFile)
+	fileCount := 0
+	// listen for sigint or sigterm to close the channel
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+		slog.Info("Caught signal, shutting down", "file_count", fileCount)
+		os.Exit(1)
+	}()
+
+	if err := filepath.Walk(*pagesFolder, func(path string, info os.FileInfo, err error) error {
+		fileCount++
+		if *resumeFileCount != 0 && fileCount < *resumeFileCount {
+			return nil
+		}
 		if err != nil {
-			slog.Error("Error gathering word frequency", "error", err)
-			return
+			return fmt.Errorf("failed walking the pages folder: %w file_count: %d", err, fileCount)
 		}
-		// remove the most frequent words
-		for word := range wiki.FrequentWords {
-			delete(wordFreq, strings.ToLower(word))
+		if info.IsDir() {
+			return nil
 		}
-		// get the stem of each word and write the frequency to that index file
-		for word, freq := range wordFreq {
+		// TODO: if it's a Category, Template or Wikipedia org page, skip it
 
-			stemFN, err := normalize.WordToStemmedFilename(word)
-			if err != nil {
-				slog.Error("Error getting the stem of the word", "error", err)
-				return
-			}
-
-			indexFile := *indexFolder + stemFN
-			f, err := os.OpenFile(indexFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
-			if os.IsNotExist(err) {
-				f, err = os.Create(indexFile)
-				if err != nil {
-					slog.Error("Error creating the index file", "error", err)
-					return
-				}
-			} else if err != nil {
-				slog.Error("Error opening the index file", "error", err)
-				return
-			}
-			if _, err := f.Seek(0, 2); err != nil {
-				slog.Error("Error seeking to the end of the index file", "error", err)
-				return
-			}
-			if _, err = fmt.Fprintf(f, "%s %d\n", filepath.Base(pageFile), freq); err != nil {
-				slog.Error("Error writing to the index file", "error", err)
-				return
-			}
-			func() { _ = f.Close() }()
+		parsed, err := wiki.ParseXML(path)
+		if err != nil {
+			return fmt.Errorf("failed parsing the title and content: %w file_count: %d", err, fileCount)
 		}
-		slog.Info("Processed page", "page", pageFile)
+
+		// TODO: figure out how to skip non-english content
+
+		fmt.Printf("title: %s\ncontent:\n%s\n\n", title, content)
+		return fmt.Errorf("stop early, debugging")
+
+		return nil
+	}); err != nil {
+		slog.Error("Error walking the pages folder", "error", err)
+		return
 	}
 
 }
 
-func gatherWordFrequency(pageFile string) (map[string]int, error) {
-	f, err := os.Open(pageFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed opening the page file: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	s := bufio.NewScanner(f)
+func gatherWordFrequency(r io.Reader) (map[string]int, error) {
+	// f, err := os.Open(pageFile)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed opening the page file: %w", err)
+	// }
+	// defer func() { _ = f.Close() }()
+	s := bufio.NewScanner(r)
 	s.Buffer(make([]byte, 0, 64*1024), 100*100*1024)
 	wordFreq := make(map[string]int)
 	for s.Scan() {

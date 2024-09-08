@@ -19,7 +19,7 @@ import (
 
 func main() {
 	wikiDumpPath := flag.String("dump_path", "", "Path to the wiki dump file")
-	outputFolder := flag.String("output_folder", "./pages/", "Folder to store the parsed pages")
+	outputFolder := flag.String("output_folder", "", "Folder to store the parsed pages")
 	resumeLineNum := flag.Uint64("line_number", 0, "Line # to resume from")
 	flag.Parse()
 

@@ -1,6 +1,10 @@
 package wiki
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"fmt"
+	"os"
+)
 
 type Page struct {
 	XMLName  xml.Name `xml:"page"`
@@ -35,4 +39,18 @@ type Page struct {
 		Sha1  string `xml:"sha1"`
 		Minor string `xml:"minor"`
 	} `xml:"revision"`
+}
+
+func ParseXML(pageFilePath string) (Page, error) {
+	f, err := os.Open(pageFilePath)
+	if err != nil {
+		return Page{}, fmt.Errorf("failed opening the page file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	var xmlPage Page
+	decoder := xml.NewDecoder(f)
+	if err := decoder.Decode(&xmlPage); err != nil {
+		return Page{}, fmt.Errorf("failed decoding the xml page: %w", err)
+	}
+	return xmlPage, nil
 }
