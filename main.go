@@ -79,26 +79,31 @@ func main() {
 		if pageSection {
 			pageBuffer = append(pageBuffer, append(line, []byte("\n")...)...)
 		}
-		var page wiki.Page
 		if bytes.Contains(line, []byte("</page>")) {
+			var page wiki.Page
 			pageSection = false
 			if err := xml.Unmarshal(pageBuffer, &page); err != nil {
 				slog.Error("Failed to unmarshal page", "error", err)
 			}
 			slog.Info("Parsed page", "title", page.Title, "namespace", page.Ns)
 			pageBuffer = make([]byte, 0, 10*1024*1024)
-		}
-		if page.Ns != "0" {
-			continue
-		}
 
-		article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
-		if err != nil {
-			slog.Error("Failed to parse article", "error", err)
+			if page.Ns != "0" {
+				continue
+			}
+
+			article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
+			if err != nil {
+				slog.Error("Failed to parse article", "error", err)
+			}
+			pageText := article.GetAbstract()
+			pageText = strings.Trim(pageText, "\n")
+			slog.Info("Successfully parsed page", "title", page.Title, "page", pageText)
+			if pageText != "" {
+				// store the file
+				// build the index entries for the file
+			}
 		}
-		pageText := article.GetAbstract()
-		pageText = strings.Trim(pageText, "\n")
-		slog.Info("Successfully parsed page", "title", page.Title, "page", pageText)
 
 	}
 	if err := s.Err(); err != nil {
