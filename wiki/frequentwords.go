@@ -1,5 +1,13 @@
 package wiki
 
+import (
+	"bufio"
+	"fmt"
+	"io"
+
+	"github.com/samiam2013/wiki4dummies/normalize"
+)
+
 var FrequentWords = map[string]struct{}{
 	"the": {}, "be": {}, "to": {}, "and": {}, "a": {}, "an": {}, "of": {}, "i": {}, "in": {}, "that": {}, "you": {}, "have": {},
 	"it": {}, "is": {}, "do": {}, "for": {}, "on": {}, "with": {}, "he": {}, "this": {}, "as": {}, "we": {}, "but": {}, "not": {},
@@ -21,3 +29,19 @@ var FrequentWords = map[string]struct{}{
 	"between": {}, "end": {}, "yeah": {}, "friend": {}, "live": {}, "name": {}, "few": {}, "sure": {}, "believe": {}, "night": {},
 	"since": {}, "problem": {}, "best": {}, "part": {}, "yes": {}, "guy": {}, "bad": {}, "far": {}, "hold": {}, "stop": {}, "next": {},
 	"bring": {}, "week": {}, "ever": {}, "head": {}, "without": {}, "lot ": {}}
+
+func GatherWordFrequency(r io.Reader) (map[string]int, error) {
+	s := bufio.NewScanner(r)
+	s.Buffer(make([]byte, 0, 64*1024), 100*100*1024)
+	wordFreq := make(map[string]int)
+	for s.Scan() {
+		words := normalize.SplitAndLower(s.Text())
+		for _, word := range words {
+			wordFreq[word]++
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, fmt.Errorf("failed scanning the page file: %w", err)
+	}
+	return wordFreq, nil
+}

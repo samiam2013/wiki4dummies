@@ -32,12 +32,3 @@ func SplitAndLower(s string) []string {
 	}
 	return words
 }
-
-func RemoveMarkup(s string) string {
-	// remove the {{ }} and [[ ]]
-	// s = strings.ReplaceAll(s, "{{", "")
-	// s = strings.ReplaceAll(s, "}}", "")
-	// s = strings.ReplaceAll(s, "[[", "")
-	// s = strings.ReplaceAll(s, "]]", "")
-	return s
-}
