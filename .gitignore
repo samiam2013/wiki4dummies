@@ -1,5 +1,5 @@
-enwiki-*-pages*.xml
-**/enwiki-*-pages*.xml
+enwiki-*-pages*.xml*
+**/enwiki-*-pages*.xml*
 pages/*
 **/pages/*
 index/*

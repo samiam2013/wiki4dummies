@@ -6,6 +6,7 @@ import (
 	"os"
 )
 
+// Page was generated 2024-09-? by https://xml-to-go.github.io/ in Ukraine.
 type Page struct {
 	XMLName  xml.Name `xml:"page"`
 	Text     string   `xml:",chardata"`
@@ -41,7 +42,7 @@ type Page struct {
 	} `xml:"revision"`
 }
 
-func ParseXML(pageFilePath string) (Page, error) {
+func ParseXMLFromFile(pageFilePath string) (Page, error) {
 	f, err := os.Open(pageFilePath)
 	if err != nil {
 		return Page{}, fmt.Errorf("failed opening the page file: %w", err)
