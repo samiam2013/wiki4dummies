@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"encoding/xml"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/samiam2013/wiki4dummies/wiki"
@@ -16,11 +19,15 @@ import (
 )
 
 func main() {
-	var wikiDumpPath string
+	var wikiDumpPath, savePath string
 	flag.StringVar(&wikiDumpPath, "dump_path", "", "Path to the Wikipedia dump file")
+	flag.StringVar(&savePath, "save_path", "", "Path to the save index, page files")
 	flag.Parse()
 	if wikiDumpPath == "" {
 		slog.Error("The dump_path arg is required")
+	}
+	if savePath == "" {
+		slog.Error("The save_path arg is required")
 	}
 	if !strings.HasSuffix(wikiDumpPath, ".xml.bz2") {
 		slog.Error("wikiDumpPath must be an bzip2 compressed XML " +
@@ -38,21 +45,15 @@ func main() {
 	// this is an insane size, unsure this is necessary
 	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 
-	siteInfo := make([]byte, 0, 1024*1024)
+	// This section may be unnecessary...x
 	siteInfoSection := false
-	skipPages := false
-	pageBuffer := make([]byte, 0, 10*1024*1024)
-	pageSection := false
+	siteInfo := make([]byte, 0, 1024*1024)
 	for s.Scan() {
 		line := s.Bytes()
-		// TODO comment this out
-		// fmt.Println(string(line))
 		if bytes.Contains(line, []byte("<siteinfo>")) {
 			siteInfoSection = true
-			skipPages = false
 		}
 		if siteInfoSection {
-			// line = bytes.ReplaceAll(line, []byte("\000"), []byte(""))
 			siteInfo = append(siteInfo, append(line, []byte("\n")...)...)
 		}
 		if bytes.Contains(line, []byte("</siteinfo>")) {
@@ -61,18 +62,21 @@ func main() {
 			fmt.Printf("siteInfo:\n%s\n", string(siteInfo))
 			if err := xml.Unmarshal(siteInfo, &si); err != nil {
 				slog.Error("Failed to unmarshal siteinfo", "error", err)
+				return
 			}
 			slog.Info("Parsed siteinfo", "sitename", si.Sitename, "dbname", si.Dbname)
 			if si.Dbname != "enwiki" {
-				slog.Warn("Skipping non-English Wikipedia", "dbname", si.Dbname)
-				skipPages = true
+				slog.Error("Won't parse non-English Wikipedia", "dbname", si.Dbname)
+				return
 			}
-			siteInfo = make([]byte, 0, 1024*1024)
+			break
 		}
-		if skipPages {
-			continue
-		}
+	}
 
+	pageSection := false
+	pageBuffer := make([]byte, 0, 10*1024*1024)
+	for s.Scan() {
+		line := s.Bytes()
 		if bytes.Contains(line, []byte("<page>")) {
 			pageSection = true
 		}
@@ -80,36 +84,115 @@ func main() {
 			pageBuffer = append(pageBuffer, append(line, []byte("\n")...)...)
 		}
 		if bytes.Contains(line, []byte("</page>")) {
-			var page wiki.Page
 			pageSection = false
-			if err := xml.Unmarshal(pageBuffer, &page); err != nil {
-				slog.Error("Failed to unmarshal page", "error", err)
-			}
-			slog.Info("Parsed page", "title", page.Title, "namespace", page.Ns)
-			pageBuffer = make([]byte, 0, 10*1024*1024)
-
-			if page.Ns != "0" {
+			pageCopy := append([]byte(nil), pageBuffer...)
+			title, abstract, text, err := parsePage(pageBuffer)
+			if errors.Is(err, ErrNonArticlePage) {
+				continue
+			} else if err != nil {
+				slog.Error("Failed to parse page", "error", err)
 				continue
 			}
+			slog.Info("Parsed page", "title", title)
 
-			article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
+			// coalesce abstract and text
+			if text == "" {
+				text = abstract
+			}
+			_ = text // TODO: index the text
+
+			savedFile, err := savePage(savePath, title, pageCopy)
 			if err != nil {
-				slog.Error("Failed to parse article", "error", err)
+				slog.Error("Failed to save page", "error", err)
+				continue
 			}
-			pageText := article.GetAbstract()
-			pageText = strings.Trim(pageText, "\n")
-			slog.Info("Successfully parsed page", "title", page.Title, "page", pageText)
-			if pageText != "" {
-				// store the file
-				// build the index entries for the file
-			}
-		}
+			slog.Info("Saved page", "title", title, "path", savedFile)
 
+			// if err := indexPage(indexPath, title, text); err != nil {
+			// 	slog.Error("Failed to index page", "error", err)
+			// }
+
+			pageBuffer = make([]byte, 0, 10*1024*1024)
+		}
 	}
 	if err := s.Err(); err != nil {
 		slog.Error("Failed to scan dump file", "error", err)
 	}
-	// TODO comment this out after debugging
-	// fmt.Println(string(siteInfo))
 
+}
+
+var ErrNonArticlePage = fmt.Errorf("Skipping non-article page")
+
+// parsePage returns title, abstract, text, error and only contains the text if
+// it was not able to parse the abstract
+func parsePage(pageBuffer []byte) (string, string, string, error) {
+	var page wiki.Page
+	if err := xml.Unmarshal(pageBuffer, &page); err != nil {
+		return "", "", "", fmt.Errorf("Failed to unmarshal page: %w", err)
+	}
+
+	if page.Ns != "0" {
+		return "", "", "", ErrNonArticlePage
+	}
+
+	article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
+	if err != nil {
+		return "", "", "", fmt.Errorf("Failed to parse article: %w", err)
+	}
+	abstract := article.GetAbstract()
+	abstract = strings.ReplaceAll(abstract, "\n", "")
+	// slog.Info("Successfully parsed page", "title", page.Title, "abstract", abstract)
+	pageText := ""
+	if abstract == "" {
+		pageText = article.GetText()
+		// TODO: call out to the python mwparserfromhell
+	}
+	return page.Title, abstract, pageText, nil
+}
+
+// func indexPage(indexPath, savedFilename, title, text string) error {
+// 	return fmt.Errorf("Not implemented")
+// }
+
+var nonAlphaNum = regexp.MustCompile("[^a-zA-Z0-9]+")
+
+func savePage(savePath, title string, pageBuffer []byte) (string, error) {
+	// slug-ify the title:
+	// 1. lowercase 2. replace spaces with dashe 3. remove leading and trailing dashes
+	title = strings.ToLower(title)
+	title = nonAlphaNum.ReplaceAllString(title, "-")
+	title = strings.Trim(title, "-")
+
+	if len(title) < 3 {
+		title = fmt.Sprintf("%-3s", title)
+	}
+
+	folderPath, err := trieMake(savePath, title)
+	if err != nil {
+		return "", fmt.Errorf("failed to save page: %w", err)
+	}
+
+	filePath := filepath.Join(folderPath, title+".xml")
+	fh, err := os.Create(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file: %w", err)
+	}
+	defer func() { _ = fh.Close() }()
+	if _, err := fh.Write(pageBuffer); err != nil {
+		return "", fmt.Errorf("failed to write to file: %w", err)
+	}
+
+	return filePath, nil
+}
+
+// trieMake creates a directory structure for the title with the first two characters
+func trieMake(savePath, title string) (string, error) {
+	// create the path
+	first := string(title[0]) // this might break on emoji
+	second := string(title[1])
+	path := filepath.Join(savePath, first, second)
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return "", fmt.Errorf("failed to create parent directories: %w", err)
+	}
+	return path, nil
 }
