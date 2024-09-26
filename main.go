@@ -51,32 +51,32 @@ func main() {
 	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 
 	// this section is just to check that it's english wikipedia
-	siteInfoSection := false
-	siteInfo := make([]byte, 0, 1024*1024)
-	for s.Scan() {
-		line := s.Bytes()
-		if bytes.Contains(line, []byte("<siteinfo>")) {
-			siteInfoSection = true
-		}
-		if siteInfoSection {
-			siteInfo = append(siteInfo, append(line, []byte("\n")...)...)
-		}
-		if bytes.Contains(line, []byte("</siteinfo>")) {
-			siteInfoSection = false
-			var si wiki.Siteinfo
-			fmt.Printf("siteInfo:\n%s\n", string(siteInfo))
-			if err := xml.Unmarshal(siteInfo, &si); err != nil {
-				slog.Error("Failed to unmarshal siteinfo", "error", err)
-				return
-			}
-			slog.Info("Parsed siteinfo", "sitename", si.Sitename, "dbname", si.Dbname)
-			if si.Dbname != "enwiki" {
-				slog.Error("Won't parse non-English Wikipedia", "dbname", si.Dbname)
-				return
-			}
-			break
-		}
-	}
+	// siteInfoSection := false
+	// siteInfo := make([]byte, 0, 1024*1024)
+	// for s.Scan() {
+	// 	line := s.Bytes()
+	// 	if bytes.Contains(line, []byte("<siteinfo>")) {
+	// 		siteInfoSection = true
+	// 	}
+	// 	if siteInfoSection {
+	// 		siteInfo = append(siteInfo, append(line, []byte("\n")...)...)
+	// 	}
+	// 	if bytes.Contains(line, []byte("</siteinfo>")) {
+	// 		siteInfoSection = false
+	// 		var si wiki.Siteinfo
+	// 		fmt.Printf("siteInfo:\n%s\n", string(siteInfo))
+	// 		if err := xml.Unmarshal(siteInfo, &si); err != nil {
+	// 			slog.Error("Failed to unmarshal siteinfo", "error", err)
+	// 			return
+	// 		}
+	// 		slog.Info("Parsed siteinfo", "sitename", si.Sitename, "dbname", si.Dbname)
+	// 		if si.Dbname != "enwiki" {
+	// 			slog.Error("Won't parse non-English Wikipedia", "dbname", si.Dbname)
+	// 			return
+	// 		}
+	// 		break
+	// 	}
+	// }
 
 	// TODO make the rate a const
 	limiter := rate.NewLimiter(rate.Every(500*time.Millisecond), 1)
