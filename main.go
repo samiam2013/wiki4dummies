@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"encoding/xml"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -45,7 +44,7 @@ func main() {
 	// this is an insane size, unsure this is necessary
 	s.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 
-	// This section may be unnecessary...x
+	// this section is just to check that it's english wikipedia
 	siteInfoSection := false
 	siteInfo := make([]byte, 0, 1024*1024)
 	for s.Scan() {
@@ -87,27 +86,29 @@ func main() {
 			pageSection = false
 			pageCopy := append([]byte(nil), pageBuffer...)
 			title, abstract, text, err := parsePage(pageBuffer)
-			if errors.Is(err, ErrNonArticlePage) {
-				continue
-			} else if err != nil {
+			if err != nil {
 				slog.Error("Failed to parse page", "error", err)
+				pageSection = false
+				pageBuffer = make([]byte, 0, 10*1024*1024)
 				continue
 			}
-			slog.Info("Parsed page", "title", title)
+			// slog.Info("Parsed page", "title", title)
 
 			// coalesce abstract and text
 			if text == "" {
 				text = abstract
 			}
-			_ = text // TODO: index the text
 
 			savedFile, err := savePage(savePath, title, pageCopy)
 			if err != nil {
 				slog.Error("Failed to save page", "error", err)
+				pageSection = false
+				pageBuffer = make([]byte, 0, 10*1024*1024)
 				continue
 			}
 			slog.Info("Saved page", "title", title, "path", savedFile)
 
+			_ = text // TODO: index the text
 			// if err := indexPage(indexPath, title, text); err != nil {
 			// 	slog.Error("Failed to index page", "error", err)
 			// }
@@ -121,23 +122,24 @@ func main() {
 
 }
 
-var ErrNonArticlePage = fmt.Errorf("Skipping non-article page")
+var ErrNonArticlePage = fmt.Errorf("skipping non-article page")
 
 // parsePage returns title, abstract, text, error and only contains the text if
 // it was not able to parse the abstract
 func parsePage(pageBuffer []byte) (string, string, string, error) {
 	var page wiki.Page
 	if err := xml.Unmarshal(pageBuffer, &page); err != nil {
-		return "", "", "", fmt.Errorf("Failed to unmarshal page: %w", err)
+		return "", "", "", fmt.Errorf("failed to unmarshal page: %w", err)
 	}
 
 	if page.Ns != "0" {
-		return "", "", "", ErrNonArticlePage
+		return "", "", "", fmt.Errorf("non-article page: %w type %s title %s",
+			ErrNonArticlePage, page.Ns, page.Title)
 	}
 
 	article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
 	if err != nil {
-		return "", "", "", fmt.Errorf("Failed to parse article: %w", err)
+		return "", "", "", fmt.Errorf("failed to parse article: %w", err)
 	}
 	abstract := article.GetAbstract()
 	abstract = strings.ReplaceAll(abstract, "\n", "")
@@ -164,7 +166,8 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 	title = strings.Trim(title, "-")
 
 	if len(title) < 3 {
-		title = fmt.Sprintf("%-3s", title)
+		title = fmt.Sprintf("%3s", title)
+		title = strings.ReplaceAll(title, " ", string(title[0]))
 	}
 
 	folderPath, err := trieMake(savePath, title)
