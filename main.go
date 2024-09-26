@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/samiam2013/wiki4dummies/wiki"
@@ -25,8 +27,10 @@ const indexFileFolder = "index"
 
 func main() {
 	var wikiDumpPath, savePath string
+	var resumeLineNum int
 	flag.StringVar(&wikiDumpPath, "dump_path", "", "Path to the Wikipedia dump file")
 	flag.StringVar(&savePath, "save_path", "", "Path to the save index, page files")
+	flag.IntVar(&resumeLineNum, "resume", 0, "Line number to resume from")
 	flag.Parse()
 	if wikiDumpPath == "" {
 		slog.Error("The dump_path arg is required")
@@ -81,11 +85,33 @@ func main() {
 	// TODO make the rate a const
 	limiter := rate.NewLimiter(rate.Every(500*time.Millisecond), 1)
 
+	var lastPageStartLineNum int
+
+	lastLine := func() {
+		slog.Info("Last page start line number (use --resume)", "line_num", lastPageStartLineNum)
+	}
+
+	// open a channel to listen for signals to stop
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		slog.Info("Received signal to stop")
+		lastLine()
+		os.Exit(0)
+	}()
+
 	pageSection := false
 	pageBuffer := make([]byte, 0, 10*1024*1024)
+	lineNum := 0
 	for s.Scan() {
 		line := s.Bytes()
+		lineNum++
+		if lineNum < resumeLineNum {
+			continue
+		}
 		if bytes.Contains(line, []byte("<page>")) {
+			lastPageStartLineNum = lineNum - 1
 			pageSection = true
 		}
 		if pageSection {
@@ -106,6 +132,7 @@ func main() {
 
 			if err := limiter.Wait(context.Background()); err != nil {
 				slog.Error("Failed to wait for limiter", "error", err)
+				lastLine()
 				return
 			}
 
