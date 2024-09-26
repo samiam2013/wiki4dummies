@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/bzip2"
+	"context"
 	"encoding/xml"
 	"flag"
 	"fmt"
@@ -12,9 +13,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/samiam2013/wiki4dummies/wiki"
 	"github.com/semantosoph/gowiki"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -72,6 +75,9 @@ func main() {
 		}
 	}
 
+	// TODO make the rate a const
+	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
+
 	pageSection := false
 	pageBuffer := make([]byte, 0, 10*1024*1024)
 	for s.Scan() {
@@ -83,6 +89,11 @@ func main() {
 			pageBuffer = append(pageBuffer, append(line, []byte("\n")...)...)
 		}
 		if bytes.Contains(line, []byte("</page>")) {
+			if err := limiter.Wait(context.Background()); err != nil {
+				slog.Error("Failed to wait for limiter", "error", err)
+				return
+			}
+
 			pageSection = false
 			pageCopy := append([]byte(nil), pageBuffer...)
 			title, abstract, text, err := parsePage(pageBuffer)
@@ -167,9 +178,11 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 
 	if len(title) < 3 {
 		title = fmt.Sprintf("%3s", title)
-		title = strings.ReplaceAll(title, " ", string(title[0]))
+		title = strings.ReplaceAll(title, " ", "_")
 	}
 
+	const pageFileFolder = "pages"
+	savePath = filepath.Join(savePath, pageFileFolder)
 	folderPath, err := trieMake(savePath, title)
 	if err != nil {
 		return "", fmt.Errorf("failed to save page: %w", err)

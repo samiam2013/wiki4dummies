@@ -4,3 +4,5 @@ github.com/flytam/filenamify v1.2.0 h1:7RiSqXYR4cJftDQ5NuvljKMfd/ubKnW/j9C6iekCh
 github.com/flytam/filenamify v1.2.0/go.mod h1:Dzf9kVycwcsBlr2ATg6uxjqiFgKGH+5SKFuhdeP5zu8=
 github.com/semantosoph/gowiki v0.0.0-20211216223956-6659b4450d94 h1:yaxa8YXgGV3TeCH3gzBilmtYxhXW9EgifLvMSldURnU=
 github.com/semantosoph/gowiki v0.0.0-20211216223956-6659b4450d94/go.mod h1:V7yZLWy+yPkIHiNl9amH0y8rbyZrKVG3sOrBbcHFZdI=
+golang.org/x/time v0.6.0 h1:eTDhh4ZXt5Qf0augr54TN6suAUudPcawVZeIAPU7D4U=
+golang.org/x/time v0.6.0/go.mod h1:3BpzKBy/shNhVucY/MWOyx10tF3SFh9QdLuxbVysPQM=
