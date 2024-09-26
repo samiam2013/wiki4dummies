@@ -20,6 +20,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const pageFileFolder = "pages"
+const indexFileFolder = "index"
+
 func main() {
 	var wikiDumpPath, savePath string
 	flag.StringVar(&wikiDumpPath, "dump_path", "", "Path to the Wikipedia dump file")
@@ -76,7 +79,7 @@ func main() {
 	}
 
 	// TODO make the rate a const
-	limiter := rate.NewLimiter(rate.Every(2*time.Second), 1)
+	limiter := rate.NewLimiter(rate.Every(500*time.Millisecond), 1)
 
 	pageSection := false
 	pageBuffer := make([]byte, 0, 10*1024*1024)
@@ -89,10 +92,6 @@ func main() {
 			pageBuffer = append(pageBuffer, append(line, []byte("\n")...)...)
 		}
 		if bytes.Contains(line, []byte("</page>")) {
-			if err := limiter.Wait(context.Background()); err != nil {
-				slog.Error("Failed to wait for limiter", "error", err)
-				return
-			}
 
 			pageSection = false
 			pageCopy := append([]byte(nil), pageBuffer...)
@@ -105,19 +104,24 @@ func main() {
 			}
 			// slog.Info("Parsed page", "title", title)
 
+			if err := limiter.Wait(context.Background()); err != nil {
+				slog.Error("Failed to wait for limiter", "error", err)
+				return
+			}
+
 			// coalesce abstract and text
 			if text == "" {
 				text = abstract
 			}
 
-			savedFile, err := savePage(savePath, title, pageCopy)
+			relSavedPath, err := savePage(savePath, title, pageCopy)
 			if err != nil {
 				slog.Error("Failed to save page", "error", err)
 				pageSection = false
 				pageBuffer = make([]byte, 0, 10*1024*1024)
 				continue
 			}
-			slog.Info("Saved page", "title", title, "path", savedFile)
+			slog.Info("Saved page", "title", title, "relative path", relSavedPath)
 
 			_ = text // TODO: index the text
 			// if err := indexPage(indexPath, title, text); err != nil {
@@ -146,6 +150,9 @@ func parsePage(pageBuffer []byte) (string, string, string, error) {
 	if page.Ns != "0" {
 		return "", "", "", fmt.Errorf("non-article page: %w type %s title %s",
 			ErrNonArticlePage, page.Ns, page.Title)
+	}
+	if page.Redirect.Title != "" {
+		return "", "", "", fmt.Errorf("redirect page: %w title %s", ErrNonArticlePage, page.Title)
 	}
 
 	article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
@@ -181,9 +188,7 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 		title = strings.ReplaceAll(title, " ", "_")
 	}
 
-	const pageFileFolder = "pages"
-	savePath = filepath.Join(savePath, pageFileFolder)
-	folderPath, err := trieMake(savePath, title)
+	folderPath, err := trieMake(filepath.Join(savePath, pageFileFolder), title)
 	if err != nil {
 		return "", fmt.Errorf("failed to save page: %w", err)
 	}
@@ -198,7 +203,9 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 		return "", fmt.Errorf("failed to write to file: %w", err)
 	}
 
-	return filePath, nil
+	leadPath := filepath.Join(savePath, pageFileFolder) + string(filepath.Separator)
+	relPath := strings.TrimPrefix(filePath, leadPath)
+	return relPath, nil
 }
 
 // trieMake creates a directory structure for the title with the first two characters
