@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/samiam2013/gowiki"
 	"github.com/samiam2013/wiki4dummies/wiki"
-	"github.com/semantosoph/gowiki"
 	"golang.org/x/time/rate"
 )
 
@@ -32,6 +32,7 @@ func main() {
 	flag.StringVar(&savePath, "save_path", "", "Path to the save index, page files")
 	flag.IntVar(&resumeLineNum, "resume", 0, "Line number to resume from")
 	flag.Parse()
+
 	if wikiDumpPath == "" {
 		slog.Error("The dump_path arg is required")
 	}
@@ -186,6 +187,7 @@ func parsePage(pageBuffer []byte) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to parse article: %w", err)
 	}
+
 	abstract := article.GetAbstract()
 	abstract = strings.ReplaceAll(abstract, "\n", "")
 	// slog.Info("Successfully parsed page", "title", page.Title, "abstract", abstract)
