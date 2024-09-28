@@ -84,7 +84,7 @@ func main() {
 	// }
 
 	// TODO make the rate a const
-	limiter := rate.NewLimiter(rate.Every(500*time.Millisecond), 1)
+	limiter := rate.NewLimiter(rate.Every(50*time.Millisecond), 1)
 
 	var lastPageStartLineNum int
 
@@ -104,6 +104,9 @@ func main() {
 
 	pageSection := false
 	pageBuffer := make([]byte, 0, 10*1024*1024)
+	pageCount := 0
+	wordCounts := make(map[string]int)
+	wordsCount := 0
 	lineNum := 0
 	for s.Scan() {
 		line := s.Bytes()
@@ -137,11 +140,6 @@ func main() {
 				return
 			}
 
-			// coalesce abstract and text
-			if text == "" {
-				text = abstract
-			}
-
 			relSavedPath, err := savePage(savePath, title, pageCopy)
 			if err != nil {
 				slog.Error("Failed to save page", "error", err)
@@ -150,11 +148,37 @@ func main() {
 				continue
 			}
 			slog.Info("Saved page", "title", title, "relative path", relSavedPath)
+			pageCount++
 
-			_ = text // TODO: index the text
-			// if err := indexPage(indexPath, title, text); err != nil {
-			// 	slog.Error("Failed to index page", "error", err)
-			// }
+			_ = text     // TODO: index the text
+			_ = abstract // TODO: index the text
+
+			// slog.Info("data lengths", "text len", len(text), "abstract len", len(abstract))
+			pageWordCount, err := wiki.GatherWordFrequency(strings.NewReader(text))
+			if err != nil {
+				slog.Error("Failed to gather word frequency", "error", err)
+				pageSection = false
+				pageBuffer = make([]byte, 0, 10*1024*1024)
+				continue
+			}
+			// slog.Info("Page word count", "data", fmt.Sprintf("%#v", pageWordCount))
+			pageWordsCount := 0
+			for word, count := range pageWordCount {
+				// slog.Info("Word frequency", "word", word, "count", count)
+				wordCounts[word] += count
+				pageWordsCount += count
+			}
+			wordsCount += pageWordsCount
+
+			if pageCount == 10_000 {
+				for word, count := range wordCounts {
+					perc := float64(count) / float64(wordsCount)
+					if perc >= 0.0005 {
+						slog.Info("Word frequency", "word", word, "count", count, "percentage", perc)
+					}
+				}
+				panic("stop early, doing word frequency lookup")
+			}
 
 			pageBuffer = make([]byte, 0, 10*1024*1024)
 		}
@@ -190,12 +214,8 @@ func parsePage(pageBuffer []byte) (string, string, string, error) {
 
 	abstract := article.GetAbstract()
 	abstract = strings.ReplaceAll(abstract, "\n", "")
-	// slog.Info("Successfully parsed page", "title", page.Title, "abstract", abstract)
-	pageText := ""
-	if abstract == "" {
-		pageText = article.GetText()
-		// TODO: call out to the python mwparserfromhell
-	}
+	pageText := article.GetText()
+
 	return page.Title, abstract, pageText, nil
 }
 
