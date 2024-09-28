@@ -190,12 +190,8 @@ func parsePage(pageBuffer []byte) (string, string, string, error) {
 
 	abstract := article.GetAbstract()
 	abstract = strings.ReplaceAll(abstract, "\n", "")
-	// slog.Info("Successfully parsed page", "title", page.Title, "abstract", abstract)
-	pageText := ""
-	if abstract == "" {
-		pageText = article.GetText()
-		// TODO: call out to the python mwparserfromhell
-	}
+	pageText := article.GetText()
+
 	return page.Title, abstract, pageText, nil
 }
 
