@@ -37,6 +37,9 @@ func GatherWordFrequency(r io.Reader) (map[string]int, error) {
 	for s.Scan() {
 		words := normalize.SplitAndLower(s.Text())
 		for _, word := range words {
+			if _, ok := FrequentWords[word]; ok {
+				continue
+			}
 			wordFreq[word]++
 		}
 	}
