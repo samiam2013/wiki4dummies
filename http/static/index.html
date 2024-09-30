@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>wiki4dummies</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #f0f0f0da;
+            font-family: Arial, sans-serif;
+        }
+
+        .grid-container {
+            display: grid;
+            height: 100vh;
+        }
+
+        .grid-item {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #f0f0f0da;
+            background-color: #1a1a1a;
+            color: #f0f0f0da;
+            width: 500px;
+        }
+
+        input[type="submit"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #f0f0f0da;
+            background-color: #1a1a1a;
+            color: #f0f0f0da;
+            cursor: pointer;
+        }
+
+        ß
+    </style>
+</head>
+
+<body>
+    <div class="grid-container">
+        <div class="grid-item" style="padding-bottom:15em">
+            <h1>Wiki4Dummies</h1>
+            <form action="/search" method="get">
+                <input type="text" name="q" placeholder="Search Wikipedia Pages...">
+                <input type="submit" value="Search">
+            </form>
+        </div>
+    </div>
+</body>
+
+</html>

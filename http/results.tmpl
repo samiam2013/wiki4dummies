@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Search Results for <noscript>"{{.Query}}"</noscript></title>
+        <style>
+        body {
+            background-color: #1a1a1a;
+            color: #f0f0f0da;
+            font-family: Arial, sans-serif;
+        }
+        .grid-container {
+            display: grid;
+            height: 100vh; /* Full viewport height to vertically center */
+        }
+
+        .grid-item {
+            display: flex;
+            align-items: center; /* Vertically align */
+            justify-content: center; /* Horizontally align */
+            flex-direction: column; /* Stack content vertically */
+        }
+
+        .result-list {
+            width: 60%;
+            margin: 0 auto;
+        }
+
+        .result-item {
+            margin-bottom: 20px;
+        }
+
+        .result-item h2 {
+            margin: 0;
+        }
+
+        .result-item a {
+            text-decoration: none;
+            color: blue;
+        }
+
+        .result-item a:hover {
+            text-decoration: underline;
+        }
+
+        .result-snippet {
+            font-size: 0.9em;
+            color: gray;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .result-list {
+                width: 90%; /* Adjust width for responsiveness */
+            }
+        }
+        </style>
+    </head>
+    <body>
+        <div class="grid-container">
+            <div class="grid-item">
+                <h1>Search Results for "{{.Query}}"</h1>
+
+                <div class="result-list">
+                    {{range .Results}}
+                    <div class="result-item">
+                        <h2><a href="{{.URL}}">{{.Title}}</a></h2>
+                        <p class="result-snippet">{{.Snippet}}</p>
+                    </div>
+                    {{else}}
+                    <p>No results found for "{{.Query}}".</p>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

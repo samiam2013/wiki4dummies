@@ -18,14 +18,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/samiam2013/wiki4dummies/constants"
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
 	"github.com/semantosoph/gowiki"
 	"golang.org/x/time/rate"
 )
-
-const pageFileFolder = "pages"
-const indexFileFolder = "index"
 
 func init() {
 	gowiki.DebugLevel = 0 // this should absolutely not be a thing
@@ -212,10 +210,10 @@ func indexPage(savePath, relSavedPath, text string) error {
 	stemmedWordFreqs := normalize.StemmedWordFreqs(wordFreqs)
 
 	// build the path for the index
-	indexPath := filepath.Join(savePath, indexFileFolder)
+	indexPath := filepath.Join(savePath, constants.IndexFileFolder)
 	// add the exact word match freqs to the indexes
 	for word, freq := range wordFreqs {
-		triePath, err := trieMake(indexPath, word)
+		triePath, err := normalize.TrieMake(indexPath, word)
 		if err != nil {
 			return fmt.Errorf("failed to make trie path: %w", err)
 		}
@@ -227,7 +225,7 @@ func indexPage(savePath, relSavedPath, text string) error {
 
 	// add the stemmed word match freqs to the indexes
 	for word, freq := range stemmedWordFreqs {
-		triePath, err := trieMake(indexPath, word)
+		triePath, err := normalize.TrieMake(indexPath, word)
 		if err != nil {
 			return fmt.Errorf("failed to make trie path: %w", err)
 		}
@@ -270,7 +268,7 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 	title = nonAlphaNum.ReplaceAllString(title, "-")
 	title = strings.Trim(title, "-")
 
-	folderPath, err := trieMake(filepath.Join(savePath, pageFileFolder), title)
+	folderPath, err := normalize.TrieMake(filepath.Join(savePath, constants.PageFileFolder), title)
 	if err != nil {
 		return "", fmt.Errorf("failed to save page: %w", err)
 	}
@@ -285,23 +283,7 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 		return "", fmt.Errorf("failed to write to file: %w", err)
 	}
 
-	leadPath := filepath.Join(savePath, pageFileFolder) + string(filepath.Separator)
+	leadPath := filepath.Join(savePath, constants.PageFileFolder) + string(filepath.Separator)
 	relPath := strings.TrimPrefix(filePath, leadPath)
 	return relPath, nil
-}
-
-// trieMake creates a directory structure for the title with the first two characters
-func trieMake(savePath, title string) (string, error) {
-	if len(title) < 3 {
-		title = fmt.Sprintf("%3s", title)
-		title = strings.ReplaceAll(title, " ", "_")
-	}
-	// create the path
-	first := string(title[0]) // this might break on emoji
-	second := string(title[1])
-	path := filepath.Join(savePath, first, second)
-	if err := os.MkdirAll(path, 0755); err != nil {
-		return "", fmt.Errorf("failed to create parent directories: %w", err)
-	}
-	return path, nil
 }
