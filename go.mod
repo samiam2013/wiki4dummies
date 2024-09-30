@@ -4,7 +4,6 @@ go 1.22.2
 
 require (
 	github.com/caneroj1/stemmer v0.0.0-20170128035808-c9f2ce1504d5
-	github.com/flytam/filenamify v1.2.0
-	github.com/samiam2013/gowiki v0.0.0-20240926060937-403728bdf7fe
+	github.com/semantosoph/gowiki v0.0.0-20211216223956-6659b4450d94
 	golang.org/x/time v0.6.0
 )

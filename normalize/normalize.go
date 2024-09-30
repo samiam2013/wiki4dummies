@@ -1,27 +1,11 @@
 package normalize
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/caneroj1/stemmer"
-	"github.com/flytam/filenamify"
 )
-
-func WordToStemmedFilename(word string) (string, error) {
-	stem := stemmer.Stem(word)
-	stem, err := filenamify.Filenamify(stem, filenamify.Options{Replacement: "-"})
-	if err != nil {
-		return "", fmt.Errorf("failed filenamifying the stem for index file: %w", err)
-	}
-	// some languages don't use spaces, so the stem could be the whole sentence
-	if len(stem) > 50 {
-		stem = stem[:50]
-	}
-	stem += ".txt"
-	return stem, nil
-}
 
 var _reGetLowerWords = regexp.MustCompile(`[a-zA-Z]+`)
 
@@ -31,4 +15,16 @@ func SplitAndLower(s string) []string {
 		words = append(words, strings.ToLower(match))
 	}
 	return words
+}
+
+// StemmedWordFreqs returns a map of stemmed words to their frequencies.
+// stemming generally means uppercasing, this returns the lowercased version.
+func StemmedWordFreqs(wordFreqs map[string]int) map[string]int {
+	stemmedWordFreqs := make(map[string]int)
+	for word, freq := range wordFreqs {
+		stem := stemmer.Stem(word)
+		stem = strings.ToLower(stem)
+		stemmedWordFreqs[stem] += freq
+	}
+	return stemmedWordFreqs
 }

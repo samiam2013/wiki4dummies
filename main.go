@@ -6,6 +6,7 @@ import (
 	"compress/bzip2"
 	"context"
 	"encoding/xml"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -17,13 +18,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/samiam2013/gowiki"
+	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
+	"github.com/semantosoph/gowiki"
 	"golang.org/x/time/rate"
 )
 
 const pageFileFolder = "pages"
 const indexFileFolder = "index"
+
+func init() {
+	gowiki.DebugLevel = 0 // this should absolutely not be a thing
+}
 
 func main() {
 	var wikiDumpPath, savePath string
@@ -84,7 +90,7 @@ func main() {
 	// }
 
 	// TODO make the rate a const
-	limiter := rate.NewLimiter(rate.Every(500*time.Millisecond), 1)
+	limiter := rate.NewLimiter(rate.Every(150*time.Millisecond), 1)
 
 	var lastPageStartLineNum int
 
@@ -124,7 +130,9 @@ func main() {
 			pageCopy := append([]byte(nil), pageBuffer...)
 			title, abstract, text, err := parsePage(pageBuffer)
 			if err != nil {
-				slog.Error("Failed to parse page", "error", err)
+				if !errors.Is(err, ErrNonArticlePage) {
+					slog.Error("Failed to parse page", "error", err)
+				}
 				pageSection = false
 				pageBuffer = make([]byte, 0, 10*1024*1024)
 				continue
@@ -151,10 +159,9 @@ func main() {
 			}
 			slog.Info("Saved page", "title", title, "relative path", relSavedPath)
 
-			_ = text // TODO: index the text
-			// if err := indexPage(indexPath, title, text); err != nil {
-			// 	slog.Error("Failed to index page", "error", err)
-			// }
+			if err := indexPage(savePath, relSavedPath, text); err != nil {
+				slog.Error("Failed to index page", "error", err)
+			}
 
 			pageBuffer = make([]byte, 0, 10*1024*1024)
 		}
@@ -195,9 +202,64 @@ func parsePage(pageBuffer []byte) (string, string, string, error) {
 	return page.Title, abstract, pageText, nil
 }
 
-// func indexPage(indexPath, savedFilename, title, text string) error {
-// 	return fmt.Errorf("Not implemented")
-// }
+func indexPage(savePath, relSavedPath, text string) error {
+	// build the word frequency
+	wordFreqs, err := wiki.GatherWordFrequency(strings.NewReader(text))
+	if err != nil {
+		return fmt.Errorf("failed to gather word frequency: %w", err)
+	}
+	// build a copy of the word frequency but stemmed
+	stemmedWordFreqs := normalize.StemmedWordFreqs(wordFreqs)
+
+	// build the path for the index
+	indexPath := filepath.Join(savePath, indexFileFolder)
+	// add the exact word match freqs to the indexes
+	for word, freq := range wordFreqs {
+		triePath, err := trieMake(indexPath, word)
+		if err != nil {
+			return fmt.Errorf("failed to make trie path: %w", err)
+		}
+		idxSavePath := filepath.Join(triePath, word+".idx")
+		if err := addToIndex(idxSavePath, freq, true, relSavedPath); err != nil {
+			return fmt.Errorf("failed to add to index: %w", err)
+		}
+	}
+
+	// add the stemmed word match freqs to the indexes
+	for word, freq := range stemmedWordFreqs {
+		triePath, err := trieMake(indexPath, word)
+		if err != nil {
+			return fmt.Errorf("failed to make trie path: %w", err)
+		}
+		idxSavePath := filepath.Join(triePath, word+".idx")
+		if err := addToIndex(idxSavePath, freq, false, relSavedPath); err != nil {
+			return fmt.Errorf("failed to add to index: %w", err)
+		}
+	}
+	return nil
+}
+
+func addToIndex(indexPath string, freq int, exact bool, relSavedPath string) error {
+	// if the file does not exist, create it
+	fh, err := os.OpenFile(indexPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open index file: %w", err)
+	}
+	defer func() { _ = fh.Close() }()
+
+	line := fmt.Sprintf("%d,%t,%s\n", freq, exact, relSavedPath)
+	// always seek to the end of the file first, can't hurt, necessary often
+	if _, err := fh.Seek(0, 2); err != nil {
+		return fmt.Errorf("failed to seek to end of file: %w", err)
+	}
+	// write the line
+	if _, err := fh.WriteString(line); err != nil {
+		return fmt.Errorf("failed to write to file: %w", err)
+	}
+	// slog.Info("Added to index", "index_path", indexPath, "line", line)
+
+	return nil
+}
 
 var nonAlphaNum = regexp.MustCompile("[^a-zA-Z0-9]+")
 
@@ -207,11 +269,6 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 	title = strings.ToLower(title)
 	title = nonAlphaNum.ReplaceAllString(title, "-")
 	title = strings.Trim(title, "-")
-
-	if len(title) < 3 {
-		title = fmt.Sprintf("%3s", title)
-		title = strings.ReplaceAll(title, " ", "_")
-	}
 
 	folderPath, err := trieMake(filepath.Join(savePath, pageFileFolder), title)
 	if err != nil {
@@ -235,6 +292,10 @@ func savePage(savePath, title string, pageBuffer []byte) (string, error) {
 
 // trieMake creates a directory structure for the title with the first two characters
 func trieMake(savePath, title string) (string, error) {
+	if len(title) < 3 {
+		title = fmt.Sprintf("%3s", title)
+		title = strings.ReplaceAll(title, " ", "_")
+	}
 	// create the path
 	first := string(title[0]) // this might break on emoji
 	second := string(title[1])
