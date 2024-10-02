@@ -1,18 +1,24 @@
 package main
 
 import (
+	"bufio"
+	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/samiam2013/wiki4dummies/constants"
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
+	"github.com/semantosoph/gowiki"
 )
 
 func main() {
@@ -97,10 +103,10 @@ func loadIndex(idxPath string) (index, error) {
 		var wordFreq int
 		var exactMatch bool
 		var relPath string
-		_, err := fmt.Fscanf(f, "%d,%t,%s\n", &wordFreq, &exactMatch, &relPath)
-		if err != nil {
+		if _, err := fmt.Fscanf(f, "%d,%t,%s\n", &wordFreq, &exactMatch, &relPath); err != nil {
 			if err.Error() != "EOF" {
 				fmt.Println("Error reading index file:", err)
+				continue
 			}
 			break
 		}
@@ -108,6 +114,8 @@ func loadIndex(idxPath string) (index, error) {
 	}
 	return rows, nil
 }
+
+const ExactMatchMultiplier = 3
 
 func search(savePath, q string) (SearchPageData, error) {
 	// Search the index
@@ -121,6 +129,7 @@ func search(savePath, q string) (SearchPageData, error) {
 	spd := SearchPageData{Query: q, Results: []SearchResult{}}
 
 	indexes := map[string]index{}
+	pages := map[string]int{}
 	// for each exact match word look for an index file
 	for word := range wordFreqs {
 		triePath, err := normalize.TrieMake(indexPath, word)
@@ -129,23 +138,162 @@ func search(savePath, q string) (SearchPageData, error) {
 		}
 		idxSavePath := filepath.Join(triePath, word+".idx")
 		idxRows, err := loadIndex(idxSavePath)
+		if errors.Is(err, os.ErrNotExist) {
+			// no index file, no results
+			continue
+		}
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				// no index file, no results
-				continue
-			}
 			return SearchPageData{}, fmt.Errorf("failed to load index: %w", err)
 		}
 		indexes[word] = idxRows
+		for _, row := range idxRows {
+			if row.ExactMatch {
+				pages[row.RelPath] += ExactMatchMultiplier * row.WordFreq
+				continue
+			}
+			pages[row.RelPath] += row.WordFreq
+		}
 	}
 
-	fmt.Printf("Indexes: %#v\n", indexes)
+	// sort the pages into a list of matches by index score
+	pagesByNumMatches := map[int][]string{}
+	maxScore := 0
+	for relPath, score := range pages {
+		pagesByNumMatches[score] = append(pagesByNumMatches[score], relPath)
+		if score > maxScore {
+			maxScore = score
+		}
+	}
+
+	const maxResults = 100
+	topResults := []string{}
+	for score := maxScore; score >= 0; score-- {
+		if len(pagesByNumMatches[score]) == 0 {
+			continue
+		}
+		for _, relPath := range pagesByNumMatches[score] {
+			topResults = append(topResults, relPath)
+			if len(topResults) >= maxResults {
+				break
+			}
+		}
+		if len(topResults) >= maxResults {
+			break
+		}
+	}
+
+	type match struct {
+		relPath    string
+		indexScore int
+		textScore  int
+	}
+	// for each page, load the page file and search for the query
+	matchList := []match{}
+	for relPath, score := range pages {
+		// TODO this is kludgy, should be removed earlier or something
+		if !slices.Contains(topResults, relPath) {
+			continue
+		}
+		var m match
+		m.relPath = relPath
+		m.indexScore = score
+		textScore, err := scorePageMatch(filepath.Join(savePath, constants.PageFileFolder, relPath), q)
+		if err != nil {
+			fmt.Println("Failed to score page match:", err)
+			continue
+		}
+		m.textScore = textScore
+		matchList = append(matchList, m)
+	}
+
+	sort.Slice(matchList, func(i, j int) bool {
+		if matchList[i].indexScore+matchList[i].textScore == matchList[j].indexScore+matchList[j].textScore {
+			return matchList[i].indexScore > matchList[j].indexScore
+		}
+		return matchList[i].indexScore+matchList[i].textScore > matchList[j].indexScore+matchList[j].textScore
+	})
+
+	spd = SearchPageData{Query: q, Results: []SearchResult{}}
+	for _, m := range matchList {
+		fmt.Printf("Match: %s, indexScore: %d, textScore: %d\n", m.relPath, m.indexScore, m.textScore)
+		var sr SearchResult
+		filePath := filepath.Join(savePath, constants.PageFileFolder, m.relPath)
+		fh, err := os.Open(filePath)
+		if err != nil {
+			fmt.Println("Failed to open page file:", err)
+			continue
+		}
+		pageBuffer, err := io.ReadAll(fh)
+		if err != nil {
+			fmt.Println("Failed to read page file:", err)
+			continue
+		}
+		title, abstract, text, err := parsePage(pageBuffer)
+		if err != nil {
+			fmt.Println("Failed to parse page:", err)
+			continue
+		}
+		sr.Title = title
+		sr.URL = fmt.Sprintf("/page/%s", m.relPath)
+		if abstract != "" {
+			sr.Snippet = abstract
+		} else {
+			sr.Snippet = text
+		}
+		if len(sr.Snippet) > 200 {
+			sr.Snippet = sr.Snippet[:200]
+		}
+		spd.Results = append(spd.Results, sr)
+
+	}
 
 	// Load the page files
 	// Search the page
 	// rank the matching
 	// Return the results
 	return spd, nil
+}
+
+// parsePage returns title, abstract, text, error and only contains the text if
+// it was not able to parse the abstract
+func parsePage(pageBuffer []byte) (string, string, string, error) {
+	var page wiki.Page
+	if err := xml.Unmarshal(pageBuffer, &page); err != nil {
+		return "", "", "", fmt.Errorf("failed to unmarshal page: %w", err)
+	}
+
+	article, err := gowiki.ParseArticle(page.Title, page.Revision.Text.Text, &gowiki.DummyPageGetter{})
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to parse article: %w", err)
+	}
+
+	abstract := article.GetAbstract()
+	abstract = strings.ReplaceAll(abstract, "\n", "")
+	pageText := article.GetText()
+
+	return page.Title, abstract, pageText, nil
+}
+
+func scorePageMatch(pagePath, q string) (int, error) {
+	words := strings.Fields(strings.ToLower(q))
+	f, err := os.Open(pagePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open page file: %w", err)
+	}
+	defer f.Close()
+	var matches int
+	// scan over each line and count the number of times the words appear
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.ToLower(sc.Text())
+		for _, word := range words {
+			matches += strings.Count(line, word)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return 0, fmt.Errorf("failed to scan page file: %w", err)
+	}
+	return matches, nil
 }
 
 func mockSearch(q string) SearchPageData {
