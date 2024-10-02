@@ -40,6 +40,7 @@ func main() {
 		http.ServeFile(w, r, "./"+r.URL.Path)
 	})
 	mux.HandleFunc("/search", handleSearch(savePath))
+	mux.HandleFunc("/page/", handlePage(savePath))
 	err := http.ListenAndServe(":3030", mux)
 	fmt.Printf("Server stopped, error: %v\n", err)
 }
@@ -240,8 +241,13 @@ func search(savePath, q string) (SearchPageData, error) {
 		} else {
 			sr.Snippet = text
 		}
-		if len(sr.Snippet) > 200 {
-			sr.Snippet = sr.Snippet[:200]
+		if len(sr.Snippet) > 290 {
+			sr.Snippet = sr.Snippet[:290]
+			// trim to the last space
+			lastSpace := strings.LastIndex(sr.Snippet, " ")
+			sr.Snippet = sr.Snippet[:lastSpace]
+			// add ellipsis
+			sr.Snippet += "..."
 		}
 		spd.Results = append(spd.Results, sr)
 
@@ -296,20 +302,36 @@ func scorePageMatch(pagePath, q string) (int, error) {
 	return matches, nil
 }
 
-func mockSearch(q string) SearchPageData {
-	results := []SearchResult{}
-	for i := 1; i <= 25; i++ {
-		results = append(results, SearchResult{
-			Title: fmt.Sprintf("Result %d", i),
-			URL:   fmt.Sprintf("http://example.com/%d", i),
-			Snippet: fmt.Sprintf("This is a snippet of result %d. it's very long and it should wrap over if it's wider "+
-				"than the page or something like that This is a snippet of result. it's very long and it should wrap"+
-				" over if it's wider than the page or something like that", i),
-		})
+func handlePage(savePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		relPath := strings.TrimPrefix(r.URL.Path, "/page/")
+		if relPath == "" {
+			http.Error(w, "No page provided", http.StatusBadRequest)
+			return
+		}
+
+		// Load the page file
+		pagePath := filepath.Join(savePath, constants.PageFileFolder, relPath)
+		f, err := os.Open(pagePath)
+		if err != nil {
+			http.Error(w, "Failed to open page", http.StatusInternalServerError)
+			fmt.Printf("Failed to open page: %v\n", err)
+			return
+		}
+		defer f.Close()
+
+		pageBuffer, err := io.ReadAll(f)
+		if err != nil {
+			http.Error(w, "Failed to read page", http.StatusInternalServerError)
+			fmt.Printf("Failed to read page: %v\n", err)
+			return
+		}
+		// Execute the template
+		w.Header().Set("Content-Type", "text")
+		if _, err := w.Write(pageBuffer); err != nil {
+			http.Error(w, "Failed to write page", http.StatusInternalServerError)
+			fmt.Printf("Failed to write page: %v\n", err)
+			return
+		}
 	}
-	data := SearchPageData{
-		Query:   q,
-		Results: results,
-	}
-	return data
 }
