@@ -1,8 +1,9 @@
 # wiki4dummies
 
-A project for parsing the english wiki dump into a searchable tree of files
+A go parser, indexer, search and browse tool made by stacking, slapping and banging rocks and sticks together.
 
-So even when the power goes out I can retain the power of the internet's information
+![image](https://github.com/user-attachments/assets/7d72862b-8337-4b95-81f9-d289fe74290e)
 
-MediaWiki Markdown is quite disagreeable; absolutely no expectation can exist
-that this code will provide a faithful reproduction or present any real value
+![image](https://github.com/user-attachments/assets/e8440349-4f34-4374-bcf2-2a4df5758308)
+
+![image](https://github.com/user-attachments/assets/1e174a1e-4d7d-42eb-8a6a-8d0564581a80)
