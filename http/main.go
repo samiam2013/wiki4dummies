@@ -216,7 +216,7 @@ func search(savePath, q string) (SearchPageData, error) {
 
 	spd = SearchPageData{Query: q, Results: []SearchResult{}}
 	for _, m := range matchList {
-		fmt.Printf("Match: %s, indexScore: %d, textScore: %d\n", m.relPath, m.indexScore, m.textScore)
+		// fmt.Printf("Match: %s, indexScore: %d, textScore: %d\n", m.relPath, m.indexScore, m.textScore)
 		var sr SearchResult
 		filePath := filepath.Join(savePath, constants.PageFileFolder, m.relPath)
 		fh, err := os.Open(filePath)
@@ -241,12 +241,11 @@ func search(savePath, q string) (SearchPageData, error) {
 		} else {
 			sr.Snippet = text
 		}
-		if len(sr.Snippet) > 290 {
-			sr.Snippet = sr.Snippet[:290]
-			// trim to the last space
+		const snippetMaxLen = 300
+		if len(sr.Snippet) > snippetMaxLen {
+			sr.Snippet = sr.Snippet[:snippetMaxLen]
 			lastSpace := strings.LastIndex(sr.Snippet, " ")
 			sr.Snippet = sr.Snippet[:lastSpace]
-			// add ellipsis
 			sr.Snippet += "..."
 		}
 		spd.Results = append(spd.Results, sr)
