@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/samiam2013/wiki4dummies/constants"
 	"github.com/samiam2013/wiki4dummies/normalize"
@@ -46,8 +47,10 @@ func main() {
 }
 
 type SearchPageData struct {
-	Query   string
-	Results []SearchResult
+	Query         string
+	SearchTime    string
+	FilesReturned int
+	Results       []SearchResult
 }
 
 type SearchResult struct {
@@ -119,6 +122,7 @@ func loadIndex(idxPath string) (index, error) {
 const ExactMatchMultiplier = 3
 
 func search(savePath, q string) (SearchPageData, error) {
+	startTime := time.Now()
 	// Search the index
 	indexPath := filepath.Join(savePath, constants.IndexFileFolder)
 	wordFreqs, err := wiki.GatherWordFrequency(strings.NewReader(q))
@@ -215,6 +219,7 @@ func search(savePath, q string) (SearchPageData, error) {
 	})
 
 	spd = SearchPageData{Query: q, Results: []SearchResult{}}
+	spd.FilesReturned = len(pages)
 	for _, m := range matchList {
 		// fmt.Printf("Match: %s, indexScore: %d, textScore: %d\n", m.relPath, m.indexScore, m.textScore)
 		var sr SearchResult
@@ -256,6 +261,7 @@ func search(savePath, q string) (SearchPageData, error) {
 	// Search the page
 	// rank the matching
 	// Return the results
+	spd.SearchTime = time.Since(startTime).Truncate(10 * time.Millisecond).String()
 	return spd, nil
 }
 

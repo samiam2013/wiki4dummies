@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <title>Search Results for <noscript>"{{.Query}}"</noscript></title>
+        <title>Search Results for "{{.Query}}"</title>
         <style>
         body {
             background-color: #1a1a1a;
@@ -58,7 +58,7 @@
     <body>
         <div class="grid-container">
             <div class="grid-item">
-                <h1>Search Results for "{{.Query}}"</h1>
+                <h4>Search Results for "{{.Query}}" took {{.SearchTime}}. {{.FilesReturned}} files in the index(es)</h4>
 
                 <div class="result-list">
                     {{range .Results}}
