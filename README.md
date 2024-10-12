@@ -1,9 +1,9 @@
 # wiki4dummies
 
-A go parser, indexer, search and browse tool made by stacking, slapping and banging rocks and sticks together.
+A go parser, indexer, search and browse tool made with dependencies only in other go code
 
-![image](https://github.com/user-attachments/assets/7d72862b-8337-4b95-81f9-d289fe74290e)
+![image](https://github.com/user-attachments/assets/ee428a6a-dc45-4837-99f4-1c9d8e163b10)
 
-![image](https://github.com/user-attachments/assets/e8440349-4f34-4374-bcf2-2a4df5758308)
+![image](https://github.com/user-attachments/assets/538467f5-9045-41be-9518-11401084130d)
 
-![image](https://github.com/user-attachments/assets/1e174a1e-4d7d-42eb-8a6a-8d0564581a80)
+![image](https://github.com/user-attachments/assets/03b925bb-8388-4217-9b7b-2abe091179a8)
