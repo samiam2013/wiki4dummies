@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -331,11 +332,26 @@ func handlePage(savePath string) http.HandlerFunc {
 			fmt.Printf("Failed to read page: %v\n", err)
 			return
 		}
-		// Execute the template
-		w.Header().Set("Content-Type", "text")
-		if _, err := w.Write(pageBuffer); err != nil {
-			http.Error(w, "Failed to write page", http.StatusInternalServerError)
-			fmt.Printf("Failed to write page: %v\n", err)
+		var wikiPage wiki.Page
+		if err := xml.Unmarshal(pageBuffer, &wikiPage); err != nil {
+			http.Error(w, "Failed to unmarshal page", http.StatusInternalServerError)
+			fmt.Printf("Failed to unmarshal page: %v\n", err)
+			return
+		}
+		// Parse the page
+		article, err := gowiki.ParseArticle(wikiPage.Title, wikiPage.Revision.Text.Text, &gowiki.DummyPageGetter{})
+		if err != nil {
+			http.Error(w, "Failed to parse article", http.StatusInternalServerError)
+			fmt.Printf("Failed to parse article: %v\n", err)
+			return
+		}
+		text := article.GetText()
+		// limit any number of \n to 2
+		newlinesRE := regexp.MustCompile(`\n{3,}`)
+		text = newlinesRE.ReplaceAllString(text, "\n\n")
+		if _, err := w.Write([]byte(text)); err != nil {
+			http.Error(w, "Failed to write article", http.StatusInternalServerError)
+			fmt.Printf("Failed to write article: %v\n", err)
 			return
 		}
 	}
