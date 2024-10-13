@@ -59,8 +59,28 @@
         <div class="grid-container">
             <div class="grid-item">
                 <h3>Search Results for "{{.Query}}" took {{.SearchTime}}. {{.FilesReturned}} files in the index(es)</h3>
-
+                
+                <script>
+                    const eventSource = new EventSource('/ai-summary?cache_key={{.CacheKey}}');
+            
+                    eventSource.onmessage = (event) => {
+                        const message = event.data;
+                        document.getElementById('messages').innerHTML += message;
+                    };
+            
+                    eventSource.onerror = (event) => {
+                        console.log('Error occurred: ', event);
+                        eventSource.close();
+                    };
+            
+                    eventSource.onopen = () => {
+                        console.log('Connection established');
+                    };
+                </script>
                 <div class="result-list">
+                    AI summary answer:
+                    <div id="messages"></div>
+                    
                     {{range .Results}}
                     <div class="result-item">
                         <h4><a href="{{.URL}}">{{.Title}}</a></h4>
