@@ -29,7 +29,9 @@ import (
 
 func main() {
 	var savePath string
+	var ollama bool
 	flag.StringVar(&savePath, "save_path", "", "Path to the save index, page files")
+	flag.BoolVar(&ollama, "ollama", false, "Use the ollama API to generate summaries")
 	flag.Parse()
 
 	if savePath == "" {
@@ -40,11 +42,6 @@ func main() {
 	fmt.Println("Initializing w4d server")
 	cache := newResultCache()
 
-	ollamaClient, err := api.ClientFromEnvironment()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/index.html")
@@ -52,11 +49,17 @@ func main() {
 	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./"+r.URL.Path)
 	})
-	mux.HandleFunc("/search", handleSearch(savePath, cache))
+	mux.HandleFunc("/search", handleSearch(savePath, cache, ollama))
 	mux.HandleFunc("/page/", handlePage(savePath))
-	mux.HandleFunc("/ai-summary", handleAISummary(cache, ollamaClient))
+	if ollama {
+		ollamaClient, err := api.ClientFromEnvironment()
+		if err != nil {
+			log.Fatal(err)
+		}
+		mux.HandleFunc("/ai-summary", handleAISummary(cache, ollamaClient))
+	}
 
-	err = http.ListenAndServe(":3030", mux)
+	err := http.ListenAndServe(":3030", mux)
 	fmt.Printf("Server stopped, error: %v\n", err)
 }
 
@@ -65,7 +68,8 @@ type SearchPageData struct {
 	SearchTime    string
 	FilesReturned int
 	Results       []SearchResult
-	CacheKey      string
+	UseOllama     bool
+	CacheKey      string // used for AI generated answers
 }
 
 type SearchResult struct {
@@ -75,7 +79,7 @@ type SearchResult struct {
 	Abstract string // used for AI generated answers
 }
 
-func handleSearch(savePath string, cache *resultCache) http.HandlerFunc {
+func handleSearch(savePath string, cache *resultCache, useOllama bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		if strings.TrimSpace(q) == "" {
@@ -90,9 +94,12 @@ func handleSearch(savePath string, cache *resultCache) http.HandlerFunc {
 			return
 		}
 
-		uuid := uuid.New().String()
-		data.CacheKey = uuid
-		cache.set(uuid, data, 5*time.Minute)
+		if useOllama {
+			data.UseOllama = true
+			uuid := uuid.New().String()
+			data.CacheKey = uuid
+			cache.set(uuid, data, 5*time.Minute)
+		}
 
 		w.Header().Set("Content-Type", "text/html")
 		tmpl := template.Must(template.ParseFiles("./results.tmpl"))
