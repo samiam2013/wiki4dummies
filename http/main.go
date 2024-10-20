@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ import (
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
 	"github.com/semantosoph/gowiki"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -118,6 +120,15 @@ type idxRow struct {
 
 type index []idxRow
 
+func asciiStringToInt(s string) int {
+	result := 0
+	for _, r := range s {
+		// Subtract '0' (ASCII 48) from the rune value to get the corresponding integer
+		result = result*10 + int(r-'0')
+	}
+	return result
+}
+
 func loadIndex(idxPath string) (index, error) {
 	f, err := os.Open(idxPath)
 	if err != nil {
@@ -125,26 +136,40 @@ func loadIndex(idxPath string) (index, error) {
 	}
 	defer f.Close()
 
-	rows := []idxRow{}
+	reader := bufio.NewReader(f)
+	rows := make([]idxRow, 0, 300_000)
+
 	for {
-		var wordFreq int
-		var exactMatch bool
-		var relPath string
-		if _, err := fmt.Fscanf(f, "%d,%t,%s\n", &wordFreq, &exactMatch, &relPath); err != nil {
-			if err.Error() != "EOF" {
-				fmt.Println("Error reading index file:", err)
-				continue
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
 			}
-			break
+			return nil, fmt.Errorf("failed to read line: %w", err)
 		}
+
+		// Split the line by commas
+		parts := strings.Split(line, ",")
+		if len(parts) != 3 {
+			fmt.Println("Invalid line format:", line)
+			continue
+		}
+
+		// Parse the fields
+		wordFreq := asciiStringToInt(parts[0])
+		exactMatch := (parts[1] == "true")
+		relPath := strings.TrimSpace(parts[2])
+
 		rows = append(rows, idxRow{WordFreq: wordFreq, ExactMatch: exactMatch, RelPath: relPath})
 	}
+
 	return rows, nil
 }
 
 const ExactMatchMultiplier = 3
 
 func search(savePath, q string) (SearchPageData, error) {
+	fmt.Printf("Searching for: %s\n", q)
 	startTime := time.Now()
 	// Search the index
 	indexPath := filepath.Join(savePath, constants.IndexFileFolder)
@@ -155,6 +180,7 @@ func search(savePath, q string) (SearchPageData, error) {
 	// TODO: evaluate the usefulness of stemming the search terms
 	// stemmedQueryWords := normalize.StemmedWordFreqs(wordFreqs)
 
+	loadIndexStart := time.Now()
 	indexes := map[string]index{}
 	pages := map[string]int{}
 	// for each exact match word look for an index file
@@ -181,7 +207,9 @@ func search(savePath, q string) (SearchPageData, error) {
 			pages[row.RelPath] += row.WordFreq
 		}
 	}
+	fmt.Printf("Loaded indexes in %s\n", time.Since(loadIndexStart).String())
 
+	sortSliceTime := time.Now()
 	// sort the pages into a list of matches by index score
 	pagesByNumMatches := map[int][]string{}
 	maxScore := 0
@@ -191,6 +219,7 @@ func search(savePath, q string) (SearchPageData, error) {
 			maxScore = score
 		}
 	}
+	fmt.Printf("Sorted pages in %s\n", time.Since(sortSliceTime).String())
 
 	const maxResults = 100
 	topResults := []string{}
@@ -214,32 +243,51 @@ func search(savePath, q string) (SearchPageData, error) {
 		indexScore int
 		textScore  int
 	}
+	type syncMatchList struct {
+		mutex   sync.Mutex
+		matches []match
+	}
 	// for each page, load the page file and search for the query
-	matchList := []match{}
+	startScorePages := time.Now()
+	syncList := syncMatchList{mutex: sync.Mutex{}, matches: []match{}}
+	eg := errgroup.Group{} // TODO don't need this
 	for relPath, score := range pages {
 		// TODO this is kludgy, should be removed earlier or something
 		if !slices.Contains(topResults, relPath) {
 			continue
 		}
-		var m match
-		m.relPath = relPath
-		m.indexScore = score
-		textScore, err := scorePageMatch(filepath.Join(savePath, constants.PageFileFolder, relPath), q)
-		if err != nil {
-			fmt.Println("Failed to score page match:", err)
-			continue
-		}
-		m.textScore = textScore
-		matchList = append(matchList, m)
+		eg.Go(func(relPath string, score int) func() error {
+			return func() error {
+				var m match
+				m.relPath = relPath
+				m.indexScore = score
+				pagePath := filepath.Join(savePath, constants.PageFileFolder, relPath)
+				textScore, err := scorePageMatch(pagePath, q)
+				if err != nil {
+					return fmt.Errorf("failed to score page match: %w", err)
+				}
+				m.textScore = textScore
+				syncList.mutex.Lock()
+				syncList.matches = append(syncList.matches, m)
+				syncList.mutex.Unlock()
+				return nil
+			}
+		}(relPath, score))
+	}
+	if err := eg.Wait(); err != nil {
+		return SearchPageData{}, fmt.Errorf("failed page search(es): %w", err)
 	}
 
+	matchList := syncList.matches
 	sort.Slice(matchList, func(i, j int) bool {
 		if matchList[i].indexScore+matchList[i].textScore == matchList[j].indexScore+matchList[j].textScore {
 			return matchList[i].indexScore > matchList[j].indexScore
 		}
 		return matchList[i].indexScore+matchList[i].textScore > matchList[j].indexScore+matchList[j].textScore
 	})
+	fmt.Printf("Scored pages in %s\n", time.Since(startScorePages).String())
 
+	startGetPageData := time.Now()
 	spd := SearchPageData{Query: q, Results: []SearchResult{}}
 	spd.FilesReturned = len(pages)
 	for _, m := range matchList {
@@ -278,6 +326,7 @@ func search(savePath, q string) (SearchPageData, error) {
 		}
 		spd.Results = append(spd.Results, sr)
 	}
+	fmt.Printf("Got page data in %s\n", time.Since(startGetPageData).String())
 
 	spd.SearchTime = time.Since(startTime).Truncate(10 * time.Millisecond).String()
 	return spd, nil
@@ -380,18 +429,7 @@ func handleAISummary(cache *resultCache, ollamaClient *api.Client) http.HandlerF
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		// if _, err := w.Write([]byte("AI Summary: \n")); err != nil {
-		// 	http.Error(w, "Failed to write start of response", http.StatusInternalServerError)
-		// 	fmt.Printf("Failed to write start of response: %v\n", err)
-		// 	return
-		// }
-		// flusher, ok := w.(http.Flusher)
-		// if ok {
-		// 	flusher.Flush()
-		// }
 
 		cacheKey := r.URL.Query().Get("cache_key")
 		if cacheKey == "" {
@@ -419,7 +457,7 @@ func handleAISummary(cache *resultCache, ollamaClient *api.Client) http.HandlerF
 		req := &api.GenerateRequest{
 			Model: "llama3.2:1b",
 			Prompt: fmt.Sprintf("You are a helpful search engine assistant. "+
-				"Answer this question in a single sentence: ` %s `", data.Query),
+				"Answer this question in a single english sentence: ` %s `", data.Query),
 			Options: map[string]any{"num_predict": 300},
 		}
 

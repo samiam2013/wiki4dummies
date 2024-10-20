@@ -9,5 +9,6 @@ require (
 	github.com/google/uuid v1.1.2
 	github.com/ollama/ollama v0.3.13
 	github.com/semantosoph/gowiki v0.0.0-20211216223956-6659b4450d94
+	golang.org/x/sync v0.8.0
 	golang.org/x/time v0.6.0
 )
