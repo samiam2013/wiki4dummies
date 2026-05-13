@@ -2,14 +2,12 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
 	"html/template"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,8 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/ollama/ollama/api"
 	"github.com/samiam2013/wiki4dummies/constants"
 	"github.com/samiam2013/wiki4dummies/normalize"
 	"github.com/samiam2013/wiki4dummies/wiki"
@@ -31,9 +27,7 @@ import (
 
 func main() {
 	var savePath string
-	var ollama bool
 	flag.StringVar(&savePath, "save_path", "", "Path to the save index, page files")
-	flag.BoolVar(&ollama, "ollama", false, "Use the ollama API to generate summaries")
 	flag.Parse()
 
 	if savePath == "" {
@@ -51,15 +45,8 @@ func main() {
 	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./"+r.URL.Path)
 	})
-	mux.HandleFunc("/search", handleSearch(savePath, cache, ollama))
+	mux.HandleFunc("/search", handleSearch(savePath, cache))
 	mux.HandleFunc("/page/", handlePage(savePath))
-	if ollama {
-		ollamaClient, err := api.ClientFromEnvironment()
-		if err != nil {
-			log.Fatal(err)
-		}
-		mux.HandleFunc("/ai-summary", handleAISummary(cache, ollamaClient))
-	}
 
 	err := http.ListenAndServe(":3030", mux)
 	fmt.Printf("Server stopped, error: %v\n", err)
@@ -68,9 +55,8 @@ func main() {
 type SearchPageData struct {
 	Query         string
 	SearchTime    string
-	FilesReturned int
+	FilesReturned int ``
 	Results       []SearchResult
-	UseOllama     bool
 	CacheKey      string // used for AI generated answers
 }
 
@@ -81,7 +67,7 @@ type SearchResult struct {
 	Abstract string // used for AI generated answers
 }
 
-func handleSearch(savePath string, cache *resultCache, useOllama bool) http.HandlerFunc {
+func handleSearch(savePath string, cache *resultCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		if strings.TrimSpace(q) == "" {
@@ -94,13 +80,6 @@ func handleSearch(savePath string, cache *resultCache, useOllama bool) http.Hand
 			http.Error(w, "Failed to search", http.StatusInternalServerError)
 			fmt.Printf("Failed to search: %v\n", err)
 			return
-		}
-
-		if useOllama {
-			data.UseOllama = true
-			uuid := uuid.New().String()
-			data.CacheKey = uuid
-			cache.set(uuid, data, 5*time.Minute)
 		}
 
 		w.Header().Set("Content-Type", "text/html")
@@ -421,73 +400,4 @@ func handlePage(savePath string) http.HandlerFunc {
 			return
 		}
 	}
-}
-
-func handleAISummary(cache *resultCache, ollamaClient *api.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Set headers to indicate this is a stream of SSE
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		cacheKey := r.URL.Query().Get("cache_key")
-		if cacheKey == "" {
-			http.Error(w, "No cache_key provided", http.StatusBadRequest)
-			fmt.Printf("Failed to get cache_key from query params\n")
-			return
-		}
-
-		data, ok := cache.get(cacheKey)
-		if !ok {
-			http.Error(w, "No data found", http.StatusNotFound)
-			fmt.Print("No data found in cache\n")
-			return
-		}
-
-		var searchSummary string
-		for i, result := range data.Results {
-			if i >= 5 {
-				break
-			}
-			searchSummary += fmt.Sprintf("%s: %s\n\n\n", result.Title, result.Abstract)
-		}
-		_ = searchSummary // TODO all for naught?
-
-		req := &api.GenerateRequest{
-			Model: "llama3.2:1b",
-			Prompt: fmt.Sprintf("You are a helpful search engine assistant. "+
-				"Answer this question in a single english sentence: ` %s `", data.Query),
-			Options: map[string]any{"num_predict": 300},
-		}
-
-		ctx := context.Background()
-		respFunc := func(resp api.GenerateResponse) error {
-			// Only print the response here; GenerateResponse has a number of other
-			// interesting fields you want to examine.
-			sanitized := strings.ReplaceAll(string(resp.Response), "\n", "<newline>")
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", sanitized); err != nil {
-				return err
-			}
-			flusher, ok := w.(http.Flusher)
-			if ok {
-				flusher.Flush()
-			}
-			return nil
-		}
-
-		if err := ollamaClient.Generate(ctx, req, respFunc); err != nil {
-			http.Error(w, "Failed to generate response", http.StatusInternalServerError)
-			fmt.Printf("Failed to generate response: %v\n", err)
-			return
-		}
-
-		// // end the stream
-		// if _, err := fmt.Fprintf(w, "data: %s\n\n", "END"); err != nil {
-		// 	http.Error(w, "Failed to write end of response", http.StatusInternalServerError)
-		// 	fmt.Printf("Failed to write end of response: %v\n", err)
-		// 	return
-		// }
-	}
-
 }
